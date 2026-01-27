@@ -1,0 +1,21 @@
+# Fichiers secrets (NE JAMAIS ENLEVER CETTE LIGNE)
+.env
+
+# Base de données locale (on ne veut pas push les données des utilisateurs)
+lolbot.db
+
+# Dossiers de build Maven (inutile de push les .class et .jar)
+target/
+
+# Fichiers de configuration IntelliJ (spécifiques à ton PC)
+.idea/
+*.iml
+*.iws
+.mvn/
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
