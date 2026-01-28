@@ -4,17 +4,32 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONArray;
+import org.sqlite.SQLiteConfig;
 
+/**
+ * Handles all SQLite database interactions.
+ * Manages user links and chat session persistence.
+ */
 public class DatabaseManager {
     private final String url = "jdbc:sqlite:lolbot.db";
-    private static final long SESSION_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
+    
+    // Configuration constants
+    private static final long SESSION_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes inactivity
+    private static final int MAX_HISTORY_LENGTH = 20; // Keep only the last 20 messages
 
     public DatabaseManager() {
         createTables();
     }
 
+    /**
+     * Establishes a connection to the SQLite database with WAL mode enabled for concurrency.
+     */
     private Connection connect() throws SQLException {
-        return DriverManager.getConnection(url);
+        SQLiteConfig config = new SQLiteConfig();
+        config.setBusyTimeout(5000);
+        config.setJournalMode(SQLiteConfig.JournalMode.WAL);
+        config.setSynchronous(SQLiteConfig.SynchronousMode.NORMAL);
+        return DriverManager.getConnection(url, config.toProperties());
     }
 
     private void createTables() {
@@ -35,12 +50,13 @@ public class DatabaseManager {
             stmt.execute(sqlUsers);
             stmt.execute(sqlSessions);
         } catch (SQLException e) {
-            System.out.println("Erreur init BDD: " + e.getMessage());
+            System.err.println("[DB] Init Error: " + e.getMessage());
         }
     }
 
-    // --- GESTION UTILISATEURS ---
-    public void saveUser(String discordId, String puuid, String summonerName) {
+    // --- USER MANAGEMENT ---
+
+    public synchronized void saveUser(String discordId, String puuid, String summonerName) {
         String sql = "INSERT OR REPLACE INTO users(discord_id, riot_puuid, summoner_name) VALUES(?, ?, ?)";
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -49,11 +65,11 @@ public class DatabaseManager {
             pstmt.setString(3, summonerName);
             pstmt.executeUpdate();
         } catch (SQLException e) {
-            System.out.println("Erreur sauvegarde user: " + e.getMessage());
+            System.err.println("[DB] Save User Error: " + e.getMessage());
         }
     }
 
-    public String getPuuid(String discordId) {
+    public synchronized String getPuuid(String discordId) {
         String sql = "SELECT riot_puuid FROM users WHERE discord_id = ?";
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -61,12 +77,12 @@ public class DatabaseManager {
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) return rs.getString("riot_puuid");
         } catch (SQLException e) {
-            System.out.println("Erreur lecture user: " + e.getMessage());
+            System.err.println("[DB] Get PUUID Error: " + e.getMessage());
         }
         return null;
     }
 
-    public List<UserRecord> getAllUsers() {
+    public synchronized List<UserRecord> getAllUsers() {
         List<UserRecord> users = new ArrayList<>();
         String sql = "SELECT discord_id, riot_puuid, summoner_name FROM users";
         try (Connection conn = this.connect();
@@ -80,17 +96,15 @@ public class DatabaseManager {
                 ));
             }
         } catch (SQLException e) {
-            System.out.println("Erreur lecture liste users: " + e.getMessage());
+            System.err.println("[DB] List Users Error: " + e.getMessage());
         }
         return users;
     }
 
-    // --- GESTION SESSION CHAT ---
-    
-    // Récupère l'historique. Si > 20min, retourne un tableau vide et nettoie.
-    public JSONArray getChatHistory(String discordId) {
+    // --- CHAT SESSION MANAGEMENT ---
+
+    public synchronized JSONArray getChatHistory(String discordId) {
         String sql = "SELECT history, last_updated FROM chat_sessions WHERE discord_id = ?";
-        
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             
@@ -100,19 +114,23 @@ public class DatabaseManager {
             if (rs.next()) {
                 long lastUpdated = rs.getLong("last_updated");
                 if (System.currentTimeMillis() - lastUpdated > SESSION_TIMEOUT_MS) {
-                    // Session expirée
-                    clearChatHistory(discordId);
+                    deleteSession(conn, discordId);
                     return new JSONArray();
                 }
                 return new JSONArray(rs.getString("history"));
             }
         } catch (Exception e) {
-            System.out.println("Erreur lecture chat: " + e.getMessage());
+            System.err.println("[DB] Get History Error: " + e.getMessage());
         }
         return new JSONArray();
     }
 
-    public void updateChatHistory(String discordId, JSONArray history) {
+    public synchronized void updateChatHistory(String discordId, JSONArray history) {
+        // Truncate history to prevent token overflow
+        while (history.length() > MAX_HISTORY_LENGTH) {
+            history.remove(0);
+        }
+
         String sql = "INSERT OR REPLACE INTO chat_sessions(discord_id, history, last_updated) VALUES(?, ?, ?)";
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -121,18 +139,23 @@ public class DatabaseManager {
             pstmt.setLong(3, System.currentTimeMillis());
             pstmt.executeUpdate();
         } catch (SQLException e) {
-            System.out.println("Erreur sauvegarde chat: " + e.getMessage());
+            System.err.println("[DB] Update History Error: " + e.getMessage());
         }
     }
 
-    public void clearChatHistory(String discordId) {
+    public synchronized void clearChatHistory(String discordId) {
+        try (Connection conn = this.connect()) {
+            deleteSession(conn, discordId);
+        } catch (SQLException e) {
+            System.err.println("[DB] Clear History Error: " + e.getMessage());
+        }
+    }
+
+    private void deleteSession(Connection conn, String discordId) throws SQLException {
         String sql = "DELETE FROM chat_sessions WHERE discord_id = ?";
-        try (Connection conn = this.connect();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, discordId);
             pstmt.executeUpdate();
-        } catch (SQLException e) {
-            System.out.println("Erreur suppression chat: " + e.getMessage());
         }
     }
 
