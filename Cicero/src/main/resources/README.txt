@@ -1,0 +1,1 @@
+Placez le fichier banniere.jpg ici.
