@@ -23,14 +23,14 @@ public class LolBot extends ListenerAdapter {
 
     private final DatabaseManager db = new DatabaseManager();
     private static RiotService riotService;
-    private static MistralService mistralService;
+    private static GeminiService geminiService;
 
     public static void main(String[] args) throws Exception {
         Dotenv dotenv = Dotenv.load();
 
         // Initialisation des services
         riotService = new RiotService(dotenv.get("RIOT_API_KEY"));
-        mistralService = new MistralService(dotenv.get("MISTRAL_API_KEY"));
+        geminiService = new GeminiService(dotenv.get("GEMINI_API_KEY"));
 
         // Démarrage du Bot
         JDA jda = JDABuilder.createDefault(dotenv.get("DISCORD_TOKEN"))
@@ -169,8 +169,8 @@ public class LolBot extends ListenerAdapter {
                 userMsg.put("content", question);
                 history.put(userMsg);
 
-                // 4. Appel à Mistral
-                String aiResponse = mistralService.chatWithHistory(history, context.toString());
+                // 4. Appel à gemini
+                String aiResponse = geminiService.chatWithHistory(history, context.toString());
 
                 // 5. Sauvegarde
                 JSONObject aiMsg = new JSONObject();
@@ -279,7 +279,7 @@ public class LolBot extends ListenerAdapter {
 
             JSONObject matchData = riotService.getMatchDetails(matchId);
             String gameSummary = summarizeMatch(matchData, puuid);
-            String aiResponse = mistralService.analyzeGame(userQuestion, gameSummary);
+            String aiResponse = geminiService.analyzeGame(userQuestion, gameSummary);
 
             if(aiResponse.length() > 1900) aiResponse = aiResponse.substring(0, 1900) + "...";
 
