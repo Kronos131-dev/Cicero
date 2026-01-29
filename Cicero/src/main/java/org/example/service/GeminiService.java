@@ -1,110 +1,102 @@
 package org.example.service;
 
-import com.google.genai.Client;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
+import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.SystemMessage;
 import io.github.cdimascio.dotenv.Dotenv;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * Service for interacting with Google's Gemini AI using LangChain4j.
+ * Integrates RiotAPI and Tavily as tools.
+ */
 public class GeminiService {
-    private final Client client1;
-    private final Client client2;
 
-    // Restauration des modèles standards (Flash est le plus rapide/efficace actuellement)
-    private static final String MODEL_ELITE = "gemini-3-flash-preview";
-    private static final String MODEL_TANK = "gemma-3-27b-it";
+    interface LolAgent {
+        @SystemMessage("Tu es un expert de League of Legends (Coach Challenger). " +
+                "Tu as accès à des outils pour chercher des infos sur les joueurs (Riot API) et sur le web (Tavily). " +
+                "Utilise ces outils pour répondre précisément aux questions. " +
+                "Réponds TOUJOURS en français.")
+        String chat(String userMessage);
+    }
 
-    private static long key1BlockedUntil = 0;
-    private static long key2BlockedUntil = 0;
-    private static final long BLOCK_DURATION = 24 * 60 * 60 * 1000; 
+    private final ChatLanguageModel model;
+    private final List<Object> tools;
+    
+    // Cache simple pour éviter de rappeler l'agent pour la même requête exacte
+    private final SimpleCache<String, String> responseCache = new SimpleCache<>(60 * 60 * 1000); // 1h cache
 
-    public GeminiService() {
+    public GeminiService(RiotService riotService, TavilyService tavilyService) {
         Dotenv dotenv = Dotenv.load();
-        String key1 = dotenv.get("GEMINI_API_KEY_1");
-        String key2 = dotenv.get("GEMINI_API_KEY_2");
+        String apiKey = dotenv.get("GEMINI_API_KEY_1");
 
-        if (key2 == null || key2.isEmpty()) key2 = key1;
+        if (apiKey == null || apiKey.isEmpty()) {
+            System.err.println("⚠️ GEMINI_API_KEY_1 is missing!");
+        }
 
-        this.client1 = Client.builder().apiKey(key1).build();
-        this.client2 = Client.builder().apiKey(key2).build();
+        this.model = GoogleAiGeminiChatModel.builder()
+                .apiKey(apiKey)
+                .modelName("gemini-1.5-pro")
+                .temperature(0.7)
+                .build();
+
+        this.tools = Arrays.asList(riotService, tavilyService);
+    }
+
+    private LolAgent createAgent() {
+        return AiServices.builder(LolAgent.class)
+                .chatLanguageModel(model)
+                .chatMemory(MessageWindowChatMemory.withMaxMessages(20)) // Mémoire locale pour la boucle d'exécution des outils
+                .tools(tools)
+                .build();
     }
 
     public String analyzeGame(String userQuestion, String gameStatsContext) {
-        String fullPrompt = "Rôle : Coach Expert de League of Legends.\n" +
-                "Instruction : Réponds TOUJOURS en français.\n" +
-                "Contexte du match (Tous les joueurs) :\n" + gameStatsContext + "\n\n" +
+        String fullPrompt = "Contexte du match (JSON) :\n" + gameStatsContext + "\n\n" +
                 "Question du joueur : " + userQuestion;
-        return smartGenerate(fullPrompt);
+        
+        // Check cache
+        String cacheKey = Integer.toHexString(fullPrompt.hashCode());
+        String cachedResponse = responseCache.get(cacheKey);
+        if (cachedResponse != null) return cachedResponse;
+
+        String response = createAgent().chat(fullPrompt);
+        
+        if (response != null) {
+            responseCache.put(cacheKey, response);
+        }
+        return response;
     }
 
-    public String chatWithHistory(JSONArray previousHistory, String systemContext) {
+    public String chatWithHistory(JSONArray previousHistory, String systemContext, AiContextService.Intent intent, String originalUserQuestion) {
         StringBuilder conversation = new StringBuilder();
-        conversation.append("Système : ").append(systemContext)
-                    .append(" (Réponds impérativement en français.)\n");
-
+        conversation.append("Système : ").append(systemContext).append("\n");
+        
         for (int i = 0; i < previousHistory.length(); i++) {
             JSONObject msg = previousHistory.getJSONObject(i);
             String role = msg.getString("role").equals("user") ? "Utilisateur" : "Assistant";
-            conversation.append(role).append(": ")
-                    .append(msg.getString("content")).append("\n");
+            conversation.append(role).append(": ").append(msg.getString("content")).append("\n");
         }
-        return smartGenerate(conversation.toString());
-    }
+        conversation.append("Utilisateur: ").append(originalUserQuestion);
 
-    private String smartGenerate(String prompt) {
-        long now = System.currentTimeMillis();
+        String fullPrompt = conversation.toString();
+        
+        // Check cache (avec suffixe pour différencier les contextes)
+        String cacheKey = Integer.toHexString(fullPrompt.hashCode());
+        String cachedResponse = responseCache.get(cacheKey);
+        if (cachedResponse != null) return cachedResponse;
 
-        if (now > key1BlockedUntil) {
-            try {
-                return generateWithRetry(client1, MODEL_ELITE, prompt);
-            } catch (Exception e1) {
-                if (isQuotaError(e1)) {
-                    System.out.println("⚠️ Quota Key 1 reached.");
-                    key1BlockedUntil = now + BLOCK_DURATION;
-                } else {
-                    return "❌ Erreur IA (Clé 1) : " + e1.getMessage();
-                }
-            }
+        String response = createAgent().chat(fullPrompt);
+
+        if (response != null) {
+            responseCache.put(cacheKey, response);
         }
-
-        if (now > key2BlockedUntil) {
-            try {
-                return generateWithRetry(client2, MODEL_ELITE, prompt);
-            } catch (Exception e2) {
-                if (isQuotaError(e2)) {
-                    System.out.println("⚠️ Quota Key 2 reached.");
-                    key2BlockedUntil = now + BLOCK_DURATION;
-                } else {
-                    return "❌ Erreur IA (Clé 2) : " + e2.getMessage();
-                }
-            }
-        }
-
-        try {
-            System.out.println("⚠️ Switching to Tank model...");
-            return generateWithRetry(client1, MODEL_TANK, prompt);
-        } catch (Exception e3) {
-            return "❌ Panne critique IA : " + e3.getMessage();
-        }
-    }
-
-    private String generateWithRetry(Client client, String model, String prompt) throws Exception {
-        int maxRetries = 2;
-        for (int i = 0; i <= maxRetries; i++) {
-            try {
-                return client.models.generateContent(model, prompt, null).text();
-            } catch (Exception e) {
-                if (e.getMessage().contains("503") && i < maxRetries) {
-                    Thread.sleep(2000);
-                    continue;
-                }
-                throw e;
-            }
-        }
-        throw new Exception("Échec après plusieurs tentatives");
-    }
-
-    private boolean isQuotaError(Exception e) {
-        String msg = e.getMessage().toLowerCase();
-        return msg.contains("429") || msg.contains("quota") || msg.contains("resource_exhausted");
+        return response;
     }
 }

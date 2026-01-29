@@ -4,10 +4,14 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONArray;
+import org.example.service.SimpleCache;
 
 public class DatabaseManager {
     private final String url = "jdbc:sqlite:lolbot.db";
     private static final long SESSION_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
+
+    // Cache pour éviter les lectures DB répétitives
+    private final SimpleCache<String, UserRecord> userCache = new SimpleCache<>(10 * 60 * 1000); // 10 min
 
     public DatabaseManager() {
         createTables();
@@ -62,6 +66,9 @@ public class DatabaseManager {
             pstmt.setString(3, summonerName);
             pstmt.setString(4, region);
             pstmt.executeUpdate();
+            
+            // Update cache
+            userCache.put(discordId, new UserRecord(discordId, puuid, summonerName, region));
         } catch (SQLException e) {
             System.out.println("Erreur sauvegarde user: " + e.getMessage());
         }
@@ -69,18 +76,24 @@ public class DatabaseManager {
 
     // Récupère l'objet complet (PUUID + Region)
     public UserRecord getUser(String discordId) {
+        // Check cache
+        UserRecord cachedUser = userCache.get(discordId);
+        if (cachedUser != null) return cachedUser;
+
         String sql = "SELECT riot_puuid, summoner_name, region FROM users WHERE discord_id = ?";
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, discordId);
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) {
-                return new UserRecord(
+                UserRecord user = new UserRecord(
                         discordId,
                         rs.getString("riot_puuid"),
                         rs.getString("summoner_name"),
                         rs.getString("region")
                 );
+                userCache.put(discordId, user);
+                return user;
             }
         } catch (SQLException e) {
             System.out.println("Erreur lecture user: " + e.getMessage());

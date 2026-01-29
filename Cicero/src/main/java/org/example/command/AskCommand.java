@@ -4,10 +4,16 @@ import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEve
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.CommandData;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
+import org.example.service.AiContextService;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.Arrays;
+import java.util.List;
+
 public class AskCommand implements SlashCommand {
+
+    private static final List<String> DETAILED_KEYWORDS = Arrays.asList("détaillé", "détaillée", "détaillés", "complet", "complète", "complets", "profond", "profonde", "profonds", "précisément");
 
     @Override
     public CommandData getCommandData() {
@@ -23,30 +29,30 @@ public class AskCommand implements SlashCommand {
 
         ctx.executor().submit(() -> {
             try {
-                JSONArray history = ctx.db().getChatHistory(discordId);
-                StringBuilder context = new StringBuilder();
-                context.append("Tu es un expert absolu de League of Legends et de l'Esport. Tes rôles : Coach, Analyste, Encyclopédie du jeu.\n");
+                // 1. Construction du contexte intelligent via le service dédié
+                AiContextService.ContextPayload payload = ctx.aiContextService().buildContext(event, question);
+                String fullContext = payload.context();
 
+                // 2. Gestion de la concision (Instruction pour l'IA)
                 String lowerQ = question.toLowerCase();
-                
-                // 1. Esport Context Injection
-                if (ctx.aiContextService().isEsportQuery(lowerQ) || lowerQ.contains("stats")) {
-                    ctx.aiContextService().injectEsportContext(context, question, lowerQ);
+                boolean wantsDetailedResponse = DETAILED_KEYWORDS.stream().anyMatch(lowerQ::contains);
+                if (!wantsDetailedResponse) {
+                    fullContext += "\nIMPORTANT: Ta réponse doit être concise et tenir en moins de 2000 caractères.\n";
                 }
 
-                // 2. Player Context Injection (Gère maintenant intelligemment les mentions et le mode Analyse/Résumé)
-                ctx.aiContextService().injectPlayerContext(event, context, question, discordId, ctx.aiContextService().isEsportQuery(lowerQ));
-
-                // 3. AI Interaction
+                // 3. Interaction avec l'IA
+                JSONArray history = ctx.db().getChatHistory(discordId);
                 JSONObject userMsg = new JSONObject().put("role", "user").put("content", question);
                 history.put(userMsg);
 
-                String aiResponse = ctx.geminiService().chatWithHistory(history, context.toString());
+                // On passe l'intent et la question originale pour optimiser la recherche Tavily
+                String aiResponse = ctx.geminiService().chatWithHistory(history, fullContext, payload.intent(), question);
 
                 JSONObject aiMsg = new JSONObject().put("role", "assistant").put("content", aiResponse);
                 history.put(aiMsg);
                 ctx.db().updateChatHistory(discordId, history);
 
+                // 4. Envoi de la réponse
                 sendLongMessage(event, aiResponse);
 
             } catch (Exception e) {

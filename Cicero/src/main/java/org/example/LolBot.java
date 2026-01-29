@@ -8,6 +8,7 @@ import org.example.command.*;
 import org.example.service.AiContextService;
 import org.example.service.GeminiService;
 import org.example.service.RiotService;
+import org.example.service.TavilyService;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -21,8 +22,9 @@ public class LolBot {
         ExecutorService executor = Executors.newFixedThreadPool(10);
         DatabaseManager db = new DatabaseManager();
         RiotService riotService = new RiotService(dotenv.get("RIOT_API_KEY"));
-        GeminiService geminiService = new GeminiService();
-        AiContextService aiContextService = new AiContextService(db, riotService, executor);
+        TavilyService tavilyService = new TavilyService();
+        GeminiService geminiService = new GeminiService(riotService, tavilyService);
+        AiContextService aiContextService = new AiContextService(db, riotService);
 
         // Création du contexte global
         BotContext context = new BotContext(db, riotService, geminiService, aiContextService, executor);
