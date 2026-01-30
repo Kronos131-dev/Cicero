@@ -119,7 +119,9 @@ public class MistralService {
      * Utile pour les commandes comme /performance qui nécessitent un format de sortie strict (JSON).
      */
     public String performTask(String userMessage, String fullSystemContext) {
-        ChatMemory memory = MessageWindowChatMemory.withMaxMessages(5);
+        // Augmentation de la mémoire pour éviter l'éviction des messages lors des appels d'outils multiples
+        // 30 messages devraient suffire pour : System + User + (Assistant(Tool) + Tool(Result)) * 14
+        ChatMemory memory = MessageWindowChatMemory.withMaxMessages(30);
         memory.add(new SystemMessage(fullSystemContext));
 
         logAgentTrace(fullSystemContext, userMessage);

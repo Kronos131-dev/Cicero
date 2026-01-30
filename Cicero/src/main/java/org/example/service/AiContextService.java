@@ -119,6 +119,15 @@ public class AiContextService {
                 }
                 
                 targets.add(new Target(user.puuid, user.region, discordName, user.summonerName));
+            } else {
+                // NOUVEAU : Si l'utilisateur mentionné n'est pas en base, on essaie de le récupérer via l'API Discord
+                // et on l'ajoute comme cible potentielle (sans PUUID pour l'instant)
+                try {
+                    User discordUser = event.getJDA().retrieveUserById(id).complete();
+                    String discordName = "@" + discordUser.getName();
+                    // On ajoute une cible "inconnue" pour que l'IA sache qu'il y a une mention mais pas de lien Riot
+                    targets.add(new Target(null, null, discordName, "Inconnu"));
+                } catch (Exception ignored) {}
             }
         }
 
@@ -209,11 +218,18 @@ public class AiContextService {
             default -> PromptRegistry.BASE_SYSTEM_PROMPT;
         };
         
+        String strategy = PromptRegistry.STRATEGY_INSTRUCTIONS_GENERIC;
+        if (intent.isEsport) {
+            strategy = PromptRegistry.STRATEGY_INSTRUCTIONS_ESPORT;
+        } else if (intent.isDeepAnalysis) {
+            strategy = PromptRegistry.STRATEGY_INSTRUCTIONS_GAME_ANALYSIS;
+        }
+
         String formatConstraint = intent.isDeepAnalysis 
             ? PromptRegistry.FORMAT_DISCORD_LONG
             : PromptRegistry.FORMAT_DISCORD_SHORT;
 
-        return base + PromptRegistry.STRATEGY_INSTRUCTIONS + formatConstraint;
+        return base + strategy + formatConstraint;
     }
 
     public enum Persona { DEFAULT, SERIOUS_COACH, TAQUIN_ANALYST, ESPORT_EXPERT }

@@ -22,22 +22,22 @@ public class HelpCommand implements SlashCommand {
         embed.setDescription("Voici la liste des commandes disponibles pour interagir avec le bot :");
 
         embed.addField("🔗 `/link [riot_id]`", 
-                "Lie ton compte Riot à ton compte Discord.\n*Exemple : /link Yvain#FDC*", false);
+                "Lie ton compte Riot à ton compte Discord.\n*Exemple : /link Brutus#FDC*", false);
 
         embed.addField("📊 `/rank [membre]`", 
-                "Affiche le rang, les LP et le winrate d'un membre.\n*Exemple : /rank @Yvain*", false);
+                "Affiche le rang, les LP et le winrate d'un membre.\n*Exemple : /rank @Brutus*", false);
 
         embed.addField("🏆 `/leaderboard`", 
                 "Affiche le classement de tous les membres enregistrés sur le serveur.", false);
 
         embed.addField("🧠 `/ask [question]`", 
-                "Pose une question à l'IA. Tu peux mentionner un joueur pour que l'IA analyse son profil.\n*Exemple : /ask Comment @Yvain peut améliorer son farm ?*", false);
+                "Pose une question à l'IA. Tu peux mentionner un joueur pour que l'IA analyse son profil.\n*Exemple : /ask Comment @Brutus peut améliorer son farm ?*", false);
 
         embed.addField("🔎 `/analyze [question]`", 
                 "L'IA analyse ta toute dernière partie jouée et répond à ta question spécifique.\n*Exemple : /analyze Pourquoi j'ai fait si peu de dégâts ?*", false);
         
         embed.addField("📈 `/performance [joueur]`", 
-                "Affiche les notes et performances des 10 joueurs de la dernière game.\n*Exemple : /performance @Yvain*", false);
+                "Affiche les notes et performances des 10 joueurs de la dernière game.\n*Exemple : /performance @Brutus*", false);
 
         embed.addField("🛠️ `/trace` & `/trace-tavily`",
                 "Télécharge les fichiers de logs (debug) de la dernière interaction IA.", false);

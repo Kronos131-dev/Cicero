@@ -67,7 +67,7 @@ public class PerformanceCommand implements SlashCommand {
                     return;
                 }
 
-                // 2. Récupérer l'analyse complète du match
+                // 2. Récupérer l'analyse complète du match (MÉTHODE LOURDE)
                 String matchJson = ctx.riotService().getMatchAnalysis(lastMatchId, user.puuid, user.region);
                 if (matchJson.startsWith("Error")) {
                     event.getHook().sendMessage("Erreur lors de l'analyse du match : " + matchJson).queue();

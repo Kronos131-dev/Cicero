@@ -24,27 +24,29 @@ public class PromptRegistry {
     public static final String FORMAT_DISCORD_SHORT = 
         "Le message final doit prendre la structure d'un message Discord. Il doit tenir dans un seul message (< 2000 caractères).";
 
-    public static final String STRATEGY_INSTRUCTIONS = 
-        "\n\nMÉTHODOLOGIE DE RÉPONSE (OBLIGATOIRE) :\n" +
-        "1. ANALYSE PROFONDE : Avant de rédiger, croise les données (JSON Riot, Recherche Web). Cherche les causes (ex: mauvais itemisation) et les conséquences (ex: dégâts faibles).\n" +
-        "2. FILTRAGE INTELLIGENT : Tu as accès à beaucoup de données brutes. NE LES AFFICHE PAS TOUTES. Sélectionne uniquement les 10% les plus pertinentes pour répondre à la question spécifique.\n" +
+    public static final String STRATEGY_INSTRUCTIONS_GAME_ANALYSIS = 
+        "\n\nMÉTHODOLOGIE D'ANALYSE DE PARTIE (OBLIGATOIRE) :\n" +
+        "1. ANALYSE PROFONDE : Croise les données (JSON Riot, Recherche Web). Cherche les causes (ex: mauvais itemisation) et les conséquences.\n" +
+        "2. FILTRAGE INTELLIGENT : Sélectionne uniquement les 10% les plus pertinentes pour répondre à la question.\n" +
         "3. CONTEXTUALISATION PAR RÔLE (CRUCIAL) :\n" +
-        "   - **SUPPORT (UTILITY)** : Ne critique JAMAIS le farm (CS). Juge la Vision (Score/min), le KP% et l'utilité (Soin/CC).\n" +
-        "   - **JUNGLE** : Le farm est secondaire. Juge surtout les Objectifs (Dragons/Barons), le KP% et l'impact sur les lanes.\n" +
-        "   - **LANERS (TOP/MID/BOT)** : Le farm (CS/min) et les Dégâts sont les critères principaux.\n" +
-        "4. STRUCTURATION : Utilise impérativement le Markdown Discord :\n" +
-        "   - **Gras** pour les points clés.\n" +
-        "   - Des listes à puces (-) pour énumérer.\n" +
-        "   - Des titres clairs (ex: '### 🛡️ Phase de Lane').\n" +
-        "5. CLARTÉ : Si tu compares deux joueurs, fais-le point par point (Vision, Dégâts, Impact) plutôt que deux blocs séparés.\n\n" +
-        "STRATÉGIE D'UTILISATION DES OUTILS :\n" +
-        "1. Identifie les joueurs et paramètres dans le contexte fourni.\n" +
-        "2. SI besoin de stats, rangs ou d'infos de match -> Utilise Riot API.\n" +
-        "3. SI demande d'ANALYSE (/analyse) -> Suis les instructions spécifiques du contexte [MODE ANALYSE].\n" +
-        "4. SI la question concerne l'ESPORT (Matchs pro, Joueurs pro, Équipes) -> Utilise l'outil 'searchEsport'.\n" +
-        "5. SI la question concerne la MÉTA GÉNÉRALE (Builds, Champions, Items, Patchs) -> Utilise l'outil 'searchMeta'.\n" +
-        "6. Réponds toujours en Français.\n\n" +
-        "FORMATTAGE :\n";
+        "   - **SUPPORT** : Juge la Vision, le KP% et l'utilité. Ignore le farm.\n" +
+        "   - **JUNGLE** : Juge les Objectifs, le KP% et l'impact. Le farm est secondaire.\n" +
+        "   - **LANERS** : Le farm (CS/min) et les Dégâts sont les critères principaux.\n" +
+        "4. STRUCTURATION : Utilise le Markdown Discord (Gras, Listes, Titres).\n\n";
+
+    public static final String STRATEGY_INSTRUCTIONS_ESPORT = 
+        "\n\nMÉTHODOLOGIE ESPORT (OBLIGATOIRE) :\n" +
+        "1. RECHERCHE : Utilise l'outil 'searchEsport' pour trouver les résultats, plannings ou stats des joueurs pros.\n" +
+        "2. PRÉCISION : Donne les scores exacts, les dates et les équipes concernées.\n" +
+        "3. CONTEXTE : Mentionne la ligue (LEC, LCK, etc.) et l'enjeu du match si pertinent.\n" +
+        "4. NE PAS INVENTER : Si tu ne trouves pas l'info, dis-le clairement.\n\n";
+
+    public static final String STRATEGY_INSTRUCTIONS_GENERIC = 
+        "\n\nMÉTHODOLOGIE GÉNÉRALE :\n" +
+        "1. Comprends l'intention de l'utilisateur.\n" +
+        "2. Utilise les outils appropriés (Riot API pour les stats, Tavily pour la méta/esport).\n" +
+        "3. Réponds de manière claire, concise et structurée (Markdown Discord).\n" +
+        "4. Réponds toujours en Français.\n\n";
 
     public static final String ANALYZE_COMMAND_CONTEXT = 
         "\n[MODE ANALYSE ACTIVÉ]\n" +
@@ -67,10 +69,13 @@ public class PromptRegistry {
         "- **ADC (BOTTOM)** : Dégâts infligés, Survie (peu de morts), Farm (CS/min très important).\n" +
         "- **SUPPORT (UTILITY)** : Vision Score (CRUCIAL), KP% (Assistances), Utilité (Soin/CC). LE FARM NE COMPTE PAS (0 CS est normal).\n\n" +
         "RÈGLES GÉNÉRALES :\n" +
-        "1. Compare les stats avec les standards Master+ pour ce rôle spécifique.\n" +
-        "2. Sois EXTRÊME : N'hésite pas à mettre < 20/100 pour un feeder inutile, et > 95/100 pour un vrai 1v9.\n" +
-        "3. Analyse l'impact réel : Un toplaner qui splitpush avec beaucoup de dégâts aux tours mérite des points même avec un KDA moyen.\n" +
-        "4. Contextualise : Si l'équipe a perdu mais que le joueur a des stats divines (SVP), note-le bien.\n\n" +
+        "1. Ta note doit etre la plus pertinente possible: c'est normal qu'un support est un grand score de vision il ne faut pas lui mettre une note ultra haute pour ça d'office, NOTE EN FONCTION DU ROLE ET DE LA DIFFERENCE PAR RAPPORT A SON OPPOSANT.\n" +
+        "2. Préviligie le snowball sur son adversaire: par exemple un jungler qui étouffe son opposant en lui volant tous ses camps de jungle, l'imapact du joueur par rapport à son opposant direct, la difference qu'il créé en golds, degats, kp" +
+        "3. Pense à prendre en compte la classe du champion du joueur pour juger ses stats: s'il joue un tank regarde les degats tanké et moins les degats infligés etc" +
+        "4. Sois EXTRÊME : N'hésite pas à mettre < 20/100 pour un feeder inutile, et > 95/100 pour un vrai 1v9.\n" +
+        "5. Analyse l'impact réel : Un toplaner qui splitpush avec beaucoup de dégâts aux tours mérite des points même avec un KDA moyen.\n" +
+        "6. Si le joueur fait partie de l'euipe qui gagne c'est normal que ses stats soient bien meilleurs note mieux les créateurs du snowball et relativise ceux qui ont juste profités, à l'inverse récompense les joeurs de l'equipe perdantes qui ont essayé, gagné en early avant que la partie deviennent injouables, relativises les notes." +
+        "7. Contextualise : Si l'équipe a perdu mais que le joueur a des stats divines (SVP), note-le bien.\n\n" +
         "Tu dois aussi écrire une phrase courte (max 15 mots) et incisive (taquine ou élogieuse) pour résumer leur performance.\n" +
         "IMPORTANT : Tu dois répondre UNIQUEMENT avec un JSON valide respectant STRICTEMENT ce format :\n" +
         "[\n" +

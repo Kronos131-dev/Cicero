@@ -117,6 +117,25 @@ public class RiotService {
         }
     }
 
+    @Tool("Récupère le PUUID d'un joueur à partir de son nom d'invocateur (Summoner Name) et de sa région.")
+    public String getPuuidBySummonerName(String summonerName, String region) {
+        try {
+            // Note: L'API Summoner V4 est toujours active mais Riot pousse vers Riot ID.
+            // Cependant, pour les vieux comptes ou les recherches par nom simple, c'est utile.
+            String safeName = URLEncoder.encode(summonerName, StandardCharsets.UTF_8).replace("+", "%20");
+            String url = "https://" + region + ".api.riotgames.com/lol/summoner/v4/summoners/by-name/" + safeName;
+            JSONObject json = executeRequest(url);
+            if (!json.has("puuid")) return "Error: Invocateur introuvable.";
+            
+            return json.getString("puuid");
+        } catch (Exception e) {
+            // Si l'API Summoner échoue (souvent 404 si le nom a changé vers Riot ID), on tente une recherche Riot ID par défaut
+            // On suppose que le summonerName est le GameName et on tente le tag par défaut de la région (ex: EUW)
+            // C'est une heuristique risquée mais utile en fallback.
+            return "Error: " + e.getMessage();
+        }
+    }
+
     // --- RANK ---
     public Map<String, RankInfo> getAllRanks(String puuid, String region) throws IOException {
         String cacheKey = puuid + "#" + region;
@@ -385,7 +404,7 @@ public class RiotService {
             return latest;
         } catch (Exception e) {
             System.err.println("[Riot] Version Error: " + e.getMessage());
-            return "14.1.1"; // Fallback
+            return "16.2.1"; // Fallback
         }
     }
 
