@@ -4,6 +4,11 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONArray;
+<<<<<<< Updated upstream
+=======
+import org.example.service.SimpleCache;
+import org.sqlite.SQLiteConfig;
+>>>>>>> Stashed changes
 
 public class DatabaseManager {
     private final String url = "jdbc:sqlite:lolbot.db";
@@ -14,7 +19,11 @@ public class DatabaseManager {
     }
 
     private Connection connect() throws SQLException {
-        return DriverManager.getConnection(url);
+        SQLiteConfig config = new SQLiteConfig();
+        config.setBusyTimeout(5000); // Attendre jusqu'à 5000ms si la DB est verrouillée
+        config.setJournalMode(SQLiteConfig.JournalMode.WAL); // Write-Ahead Logging pour meilleure concurrence
+        config.setSynchronous(SQLiteConfig.SynchronousMode.NORMAL);
+        return DriverManager.getConnection(url, config.toProperties());
     }
 
     private void createTables() {
@@ -40,8 +49,13 @@ public class DatabaseManager {
     }
 
     // --- GESTION UTILISATEURS ---
+<<<<<<< Updated upstream
     public void saveUser(String discordId, String puuid, String summonerName) {
         String sql = "INSERT OR REPLACE INTO users(discord_id, riot_puuid, summoner_name) VALUES(?, ?, ?)";
+=======
+    public synchronized void saveUser(String discordId, String puuid, String summonerName, String region) {
+        String sql = "INSERT OR REPLACE INTO users(discord_id, riot_puuid, summoner_name, region) VALUES(?, ?, ?, ?)";
+>>>>>>> Stashed changes
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, discordId);
@@ -86,9 +100,13 @@ public class DatabaseManager {
     }
 
     // --- GESTION SESSION CHAT ---
+<<<<<<< Updated upstream
     
     // Récupère l'historique. Si > 20min, retourne un tableau vide et nettoie.
     public JSONArray getChatHistory(String discordId) {
+=======
+    public synchronized JSONArray getChatHistory(String discordId) {
+>>>>>>> Stashed changes
         String sql = "SELECT history, last_updated FROM chat_sessions WHERE discord_id = ?";
         
         try (Connection conn = this.connect();
@@ -100,8 +118,14 @@ public class DatabaseManager {
             if (rs.next()) {
                 long lastUpdated = rs.getLong("last_updated");
                 if (System.currentTimeMillis() - lastUpdated > SESSION_TIMEOUT_MS) {
+<<<<<<< Updated upstream
                     // Session expirée
                     clearChatHistory(discordId);
+=======
+                    // Attention: appel récursif à une méthode synchronized, mais sur le même thread donc OK (reentrant)
+                    // Cependant, pour éviter tout risque, on peut extraire la logique de suppression
+                    deleteSessionInternal(conn, discordId);
+>>>>>>> Stashed changes
                     return new JSONArray();
                 }
                 return new JSONArray(rs.getString("history"));
@@ -112,7 +136,7 @@ public class DatabaseManager {
         return new JSONArray();
     }
 
-    public void updateChatHistory(String discordId, JSONArray history) {
+    public synchronized void updateChatHistory(String discordId, JSONArray history) {
         String sql = "INSERT OR REPLACE INTO chat_sessions(discord_id, history, last_updated) VALUES(?, ?, ?)";
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -125,14 +149,19 @@ public class DatabaseManager {
         }
     }
 
-    public void clearChatHistory(String discordId) {
-        String sql = "DELETE FROM chat_sessions WHERE discord_id = ?";
-        try (Connection conn = this.connect();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, discordId);
-            pstmt.executeUpdate();
+    public synchronized void clearChatHistory(String discordId) {
+        try (Connection conn = this.connect()) {
+            deleteSessionInternal(conn, discordId);
         } catch (SQLException e) {
             System.out.println("Erreur suppression chat: " + e.getMessage());
+        }
+    }
+
+    private void deleteSessionInternal(Connection conn, String discordId) throws SQLException {
+        String sql = "DELETE FROM chat_sessions WHERE discord_id = ?";
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, discordId);
+            pstmt.executeUpdate();
         }
     }
 

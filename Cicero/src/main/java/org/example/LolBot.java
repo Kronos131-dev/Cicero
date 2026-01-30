@@ -10,8 +10,16 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.entities.User;
 import io.github.cdimascio.dotenv.Dotenv;
+<<<<<<< Updated upstream
 import org.json.JSONObject;
 import org.json.JSONArray;
+=======
+import org.example.command.*;
+import org.example.service.AiContextService;
+import org.example.service.MistralService;
+import org.example.service.RiotService;
+import org.example.service.TavilyService;
+>>>>>>> Stashed changes
 
 import java.awt.Color;
 import java.util.List;
@@ -29,10 +37,35 @@ public class LolBot extends ListenerAdapter {
         Dotenv dotenv = Dotenv.load();
 
         // Initialisation des services
+<<<<<<< Updated upstream
         riotService = new RiotService(dotenv.get("RIOT_API_KEY"));
         mistralService = new MistralService(dotenv.get("MISTRAL_API_KEY"));
 
         // Démarrage du Bot
+=======
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+        DatabaseManager db = new DatabaseManager();
+        RiotService riotService = new RiotService(dotenv.get("RIOT_API_KEY"));
+        TavilyService tavilyService = new TavilyService();
+        MistralService mistralService = new MistralService(riotService, tavilyService);
+        AiContextService aiContextService = new AiContextService(db, riotService);
+
+        // Création du contexte global
+        BotContext context = new BotContext(db, riotService, mistralService, aiContextService, executor);
+
+        // Gestionnaire de commandes
+        CommandManager commandManager = new CommandManager(context);
+        commandManager.addCommand(new LinkCommand());
+        commandManager.addCommand(new AnalyzeCommand());
+        commandManager.addCommand(new LeaderboardCommand());
+        commandManager.addCommand(new RankCommand());
+        commandManager.addCommand(new AskCommand());
+        commandManager.addCommand(new NewAskCommand());
+        commandManager.addCommand(new HelpCommand());
+        commandManager.addCommand(new PerformanceCommand());
+
+        // Démarrage du bot
+>>>>>>> Stashed changes
         JDA jda = JDABuilder.createDefault(dotenv.get("DISCORD_TOKEN"))
                 .enableIntents(GatewayIntent.MESSAGE_CONTENT)
                 .addEventListeners(new LolBot())

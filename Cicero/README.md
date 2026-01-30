@@ -1,52 +1,66 @@
-# 🤖 Cicero - Bot Discord LoL & Esport
+# Cicero - League of Legends Discord Bot
 
-Un bot Discord intelligent capable d'analyser vos parties de League of Legends, de suivre vos rangs et de discuter stratégie/esport grâce à l'IA Mistral.
+Cicero est un bot Discord avancé pour League of Legends, propulsé par l'IA (Mistral AI) et intégrant les données en temps réel de Riot Games et des recherches web via Tavily.
 
-## 🚀 Fonctionnalités
+## Fonctionnalités
 
-- **🔗 Liaison de compte** : `/link GameName#Tag` pour lier votre compte Riot.
-- **📊 Suivi de rang** : `/rank` et `/leaderboard` pour voir qui est le meilleur du serveur (Solo & Flex).
-- **🧠 IA Coach & Expert** : `/ask` pour poser des questions techniques ou esport. L'IA connaît votre contexte (rang, champions, dernières games).
-- **🔎 Analyse de game** : `/analyze` pour comprendre pourquoi vous avez gagné ou perdu.
-- **🛡️ Modération** : Le bot refuse de parler de sujets hors-sujet (politique, etc.).
+### 🤖 IA & Analyse
+- **/ask [question]** : Posez n'importe quelle question sur LoL. L'IA peut accéder à votre historique de match, votre rang, et faire des recherches sur la méta actuelle.
+- **/analyze [question]** : Analyse approfondie de votre dernière partie. L'IA examine les builds, les runes, l'ordre des compétences et compare vos stats avec les données optimales (Master+).
+- **/performance** : Génère un rapport de performance pour les 10 joueurs de votre dernière partie, avec des notes sur 100 et des commentaires personnalisés.
+- **/new-ask** : Réinitialise la mémoire de conversation de l'IA.
 
-## 🛠️ Installation (Pour le développeur / Serveur)
+### 📊 Statistiques & Classement
+- **/rank [membre]** : Affiche le rang SoloQ, les LP et le winrate d'un membre du serveur.
+- **/leaderboard** : Affiche le classement (Ladder) des membres du serveur, basé sur leur rang SoloQ.
 
-### 1. Prérequis
-- Java 17 ou supérieur installé.
-- Un bot Discord créé sur le [Portail Développeur Discord](https://discord.com/developers/applications).
-- Une clé API Riot Games (Attention à la régénérer toutes les 24h si c'est une clé perso).
-- Une clé API Mistral AI.
+### 🔗 Compte
+- **/link [riot_id] [region]** : Lie votre compte Riot (ex: `Pseudo#TAG`) au bot pour permettre l'analyse de vos parties.
 
-### 2. Configuration
-Créez un fichier `.env` à la racine du dossier (à côté du `.jar`) avec le contenu suivant :
+## Architecture Technique
 
-```env
-DISCORD_TOKEN=votre_token_discord_ici
-RIOT_API_KEY=votre_cle_riot_ici
-MISTRAL_API_KEY=votre_cle_mistral_ici
-```
+- **Langage** : Java 21
+- **Framework Discord** : JDA (Java Discord API)
+- **IA** : LangChain4j + Mistral AI (Large Latest)
+- **API Riot** : Intégration native avec gestion intelligente du Rate Limiting et cache.
+- **Recherche Web** : Tavily API pour les infos en temps réel (Esport, Méta, Patchs).
+- **Base de données** : SQLite pour le stockage des utilisateurs et de l'historique de chat.
 
-### 3. Compilation (Créer le .jar)
-Si vous avez le code source, ouvrez un terminal dans le dossier du projet et lancez :
+## Installation
 
-```bash
-mvn clean package
-```
+1. **Prérequis** :
+   - Java 21 ou supérieur
+   - Maven
+   - Un bot Discord créé sur le [Portail Développeur Discord](https://discord.com/developers/applications)
+   - Clés API : Riot Games, Mistral AI, Tavily.
 
-Cela va créer un fichier `Cicero-1.0-SNAPSHOT.jar` dans le dossier `target/`.
+2. **Configuration** :
+   Créez un fichier `.env` à la racine du projet avec les variables suivantes :
+   ```env
+   DISCORD_TOKEN=votre_token_discord
+   RIOT_API_KEY=votre_cle_riot
+   MISTRAL_API_KEY=votre_cle_mistral
+   TAVILY_API_KEY=votre_cle_tavily
+   ```
 
-### 4. Lancement sur le serveur
-Transférez le fichier `.jar` et le fichier `.env` sur votre serveur, puis lancez :
+3. **Lancement** :
+   ```bash
+   mvn clean package
+   java -jar target/Cicero-1.0-SNAPSHOT.jar
+   ```
 
-```bash
-java -jar Cicero-1.0-SNAPSHOT.jar
-```
+## Structure du Projet
 
-Pour le laisser tourner en arrière-plan (sur Linux) :
-```bash
-nohup java -jar Cicero-1.0-SNAPSHOT.jar > bot.log 2>&1 &
-```
+- `org.example` : Point d'entrée (`LolBot`).
+- `org.example.command` : Gestionnaires de commandes Slash (`/ask`, `/analyze`, etc.).
+- `org.example.service` : Services métier (Riot, Mistral, Tavily, Context).
+- `org.example.service.ai` : Registre des prompts et configurations IA.
+- `org.example.data` : Gestion de la base de données (SQLite).
 
-## ⚠️ Note importante
-La base de données `lolbot.db` sera créée automatiquement au premier lancement. Ne la supprimez pas si vous voulez garder les liens des comptes utilisateurs !
+## Contribution
+
+Les contributions sont les bienvenues ! N'hésitez pas à ouvrir une issue ou une Pull Request.
+
+## Licence
+
+Ce projet est sous licence MIT.
