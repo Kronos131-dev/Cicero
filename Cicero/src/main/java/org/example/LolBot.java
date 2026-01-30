@@ -40,6 +40,8 @@ public class LolBot extends ListenerAdapter {
         commandManager.addCommand(new NewAskCommand());
         commandManager.addCommand(new HelpCommand());
         commandManager.addCommand(new PerformanceCommand());
+        commandManager.addCommand(new TraceCommand());
+        commandManager.addCommand(new TraceTavilyCommand());
 
         // Démarrage du bot
         JDA jda = JDABuilder.createDefault(dotenv.get("DISCORD_TOKEN"))

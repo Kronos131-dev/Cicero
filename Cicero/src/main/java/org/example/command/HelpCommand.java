@@ -39,7 +39,10 @@ public class HelpCommand implements SlashCommand {
         embed.addField("📈 `/performance [joueur]`", 
                 "Affiche les notes et performances des 10 joueurs de la dernière game.\n*Exemple : /performance @Yvain*", false);
 
-        embed.setFooter("Bot développé avec ❤️ pour les invocateurs.");
+        embed.addField("🛠️ `/trace` & `/trace-tavily`",
+                "Télécharge les fichiers de logs (debug) de la dernière interaction IA.", false);
+
+        embed.setFooter("Bot développé par Kronos pour les invocateurs.");
         
         event.replyEmbeds(embed.build()).queue();
     }
