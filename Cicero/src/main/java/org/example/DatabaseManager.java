@@ -4,11 +4,7 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONArray;
-<<<<<<< Updated upstream
-=======
-import org.example.service.SimpleCache;
 import org.sqlite.SQLiteConfig;
->>>>>>> Stashed changes
 
 public class DatabaseManager {
     private final String url = "jdbc:sqlite:lolbot.db";
@@ -30,7 +26,8 @@ public class DatabaseManager {
         String sqlUsers = "CREATE TABLE IF NOT EXISTS users (" +
                 "discord_id TEXT PRIMARY KEY, " +
                 "riot_puuid TEXT NOT NULL, " +
-                "summoner_name TEXT NOT NULL" +
+                "summoner_name TEXT NOT NULL, " +
+                "region TEXT DEFAULT 'euw1'" +
                 ");";
 
         String sqlSessions = "CREATE TABLE IF NOT EXISTS chat_sessions (" +
@@ -43,46 +40,66 @@ public class DatabaseManager {
              Statement stmt = conn.createStatement()) {
             stmt.execute(sqlUsers);
             stmt.execute(sqlSessions);
+            
+            // Migration simple : ajout de la colonne region si elle manque (pour les vieilles DB)
+            try {
+                stmt.execute("ALTER TABLE users ADD COLUMN region TEXT DEFAULT 'euw1'");
+            } catch (SQLException ignored) {
+                // La colonne existe déjà
+            }
         } catch (SQLException e) {
             System.out.println("Erreur init BDD: " + e.getMessage());
         }
     }
 
     // --- GESTION UTILISATEURS ---
-<<<<<<< Updated upstream
-    public void saveUser(String discordId, String puuid, String summonerName) {
-        String sql = "INSERT OR REPLACE INTO users(discord_id, riot_puuid, summoner_name) VALUES(?, ?, ?)";
-=======
     public synchronized void saveUser(String discordId, String puuid, String summonerName, String region) {
         String sql = "INSERT OR REPLACE INTO users(discord_id, riot_puuid, summoner_name, region) VALUES(?, ?, ?, ?)";
->>>>>>> Stashed changes
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, discordId);
             pstmt.setString(2, puuid);
             pstmt.setString(3, summonerName);
+            pstmt.setString(4, region != null ? region : "euw1");
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println("Erreur sauvegarde user: " + e.getMessage());
         }
     }
 
-    public String getPuuid(String discordId) {
-        String sql = "SELECT riot_puuid FROM users WHERE discord_id = ?";
+    // Surcharge pour compatibilité si besoin, par défaut EUW1
+    public void saveUser(String discordId, String puuid, String summonerName) {
+        saveUser(discordId, puuid, summonerName, "euw1");
+    }
+
+    public UserRecord getUser(String discordId) {
+        String sql = "SELECT riot_puuid, summoner_name, region FROM users WHERE discord_id = ?";
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, discordId);
             ResultSet rs = pstmt.executeQuery();
-            if (rs.next()) return rs.getString("riot_puuid");
+            if (rs.next()) {
+                return new UserRecord(
+                    discordId,
+                    rs.getString("riot_puuid"),
+                    rs.getString("summoner_name"),
+                    rs.getString("region")
+                );
+            }
         } catch (SQLException e) {
             System.out.println("Erreur lecture user: " + e.getMessage());
         }
         return null;
     }
 
+    public String getPuuid(String discordId) {
+        UserRecord user = getUser(discordId);
+        return user != null ? user.puuid : null;
+    }
+
     public List<UserRecord> getAllUsers() {
         List<UserRecord> users = new ArrayList<>();
-        String sql = "SELECT discord_id, riot_puuid, summoner_name FROM users";
+        String sql = "SELECT discord_id, riot_puuid, summoner_name, region FROM users";
         try (Connection conn = this.connect();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
@@ -90,7 +107,8 @@ public class DatabaseManager {
                 users.add(new UserRecord(
                         rs.getString("discord_id"),
                         rs.getString("riot_puuid"),
-                        rs.getString("summoner_name")
+                        rs.getString("summoner_name"),
+                        rs.getString("region")
                 ));
             }
         } catch (SQLException e) {
@@ -100,13 +118,7 @@ public class DatabaseManager {
     }
 
     // --- GESTION SESSION CHAT ---
-<<<<<<< Updated upstream
-    
-    // Récupère l'historique. Si > 20min, retourne un tableau vide et nettoie.
-    public JSONArray getChatHistory(String discordId) {
-=======
     public synchronized JSONArray getChatHistory(String discordId) {
->>>>>>> Stashed changes
         String sql = "SELECT history, last_updated FROM chat_sessions WHERE discord_id = ?";
         
         try (Connection conn = this.connect();
@@ -118,14 +130,7 @@ public class DatabaseManager {
             if (rs.next()) {
                 long lastUpdated = rs.getLong("last_updated");
                 if (System.currentTimeMillis() - lastUpdated > SESSION_TIMEOUT_MS) {
-<<<<<<< Updated upstream
-                    // Session expirée
-                    clearChatHistory(discordId);
-=======
-                    // Attention: appel récursif à une méthode synchronized, mais sur le même thread donc OK (reentrant)
-                    // Cependant, pour éviter tout risque, on peut extraire la logique de suppression
                     deleteSessionInternal(conn, discordId);
->>>>>>> Stashed changes
                     return new JSONArray();
                 }
                 return new JSONArray(rs.getString("history"));
@@ -169,11 +174,18 @@ public class DatabaseManager {
         public String discordId;
         public String puuid;
         public String summonerName;
+        public String region;
 
-        public UserRecord(String discordId, String puuid, String summonerName) {
+        public UserRecord(String discordId, String puuid, String summonerName, String region) {
             this.discordId = discordId;
             this.puuid = puuid;
             this.summonerName = summonerName;
+            this.region = (region == null || region.isEmpty()) ? "euw1" : region;
+        }
+        
+        // Constructeur de compatibilité
+        public UserRecord(String discordId, String puuid, String summonerName) {
+            this(discordId, puuid, summonerName, "euw1");
         }
     }
 }

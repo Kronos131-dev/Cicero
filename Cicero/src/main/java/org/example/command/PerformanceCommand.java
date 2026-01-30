@@ -1,7 +1,10 @@
 package org.example.command;
 
 import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import net.dv8tion.jda.api.interactions.commands.OptionMapping;
+import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.CommandData;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import org.example.DatabaseManager;
@@ -27,26 +30,40 @@ public class PerformanceCommand implements SlashCommand {
 
     @Override
     public CommandData getCommandData() {
-        return Commands.slash("performance", "Affiche les notes et performances des 10 joueurs de ta dernière game.");
+        return Commands.slash("performance", "Affiche les notes et performances des 10 joueurs de la dernière game.")
+                .addOption(OptionType.USER, "joueur", "Le joueur dont tu veux voir la performance (optionnel)", false);
     }
 
     @Override
     public void execute(SlashCommandInteractionEvent event, BotContext ctx) {
+        // On diffère la réponse pour éviter le timeout de 3 secondes de Discord
         event.deferReply().queue();
-        String discordId = event.getUser().getId();
+        
+        User targetUser = event.getUser();
+        OptionMapping option = event.getOption("joueur");
+        if (option != null) {
+            targetUser = option.getAsUser();
+        }
+        
+        String discordId = targetUser.getId();
         DatabaseManager.UserRecord user = ctx.db().getUser(discordId);
 
         if (user == null) {
-            event.getHook().sendMessage("Tu n'as pas lié ton compte Riot ! Utilise la commande `/link` d'abord.").queue();
+            String message = (option != null) 
+                ? "Ce joueur n'a pas lié son compte Riot !" 
+                : "Tu n'as pas lié ton compte Riot ! Utilise la commande `/link` d'abord.";
+            event.getHook().sendMessage(message).queue();
             return;
         }
+
+        User finalTargetUser = targetUser;
 
         ctx.executor().submit(() -> {
             try {
                 // 1. Récupérer le dernier match
                 String lastMatchId = ctx.riotService().getLastMatchId(user.puuid, user.region);
                 if (lastMatchId.startsWith("Error") || lastMatchId.equals("None")) {
-                    event.getHook().sendMessage("Impossible de récupérer ton dernier match.").queue();
+                    event.getHook().sendMessage("Impossible de récupérer le dernier match.").queue();
                     return;
                 }
 
@@ -100,7 +117,8 @@ public class PerformanceCommand implements SlashCommand {
 
                 // 6. Construction de l'Embed
                 EmbedBuilder embed = new EmbedBuilder();
-                embed.setTitle("📊 Rapport de Performance - " + lastMatchId);
+                embed.setTitle("📊 Rapport de Performance - " + finalTargetUser.getName());
+                embed.setDescription("Match: " + lastMatchId);
                 embed.setColor(Color.decode("#C8AA6E")); // Or Hextech
                 embed.setFooter("Analyse générée par Cicero AI • " + user.region.toUpperCase());
                 embed.setTimestamp(java.time.Instant.now());
