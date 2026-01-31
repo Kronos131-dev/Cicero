@@ -106,6 +106,7 @@ public class AskCommand implements SlashCommand {
             String matchJson;
             if (isDetailedRequest(question)) {
                 matchJson = ctx.riotService().getMatchAnalysis(lastMatchId, puuid, region);
+                // On ajoute le contexte d'analyse lourde SI il n'est pas déjà présent
                 if (!fullContext.toString().contains("ANALYSE LOURDE")) {
                     fullContext.append(PromptRegistry.ANALYZE_COMMAND_CONTEXT);
                 }

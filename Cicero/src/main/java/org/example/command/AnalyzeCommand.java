@@ -50,9 +50,9 @@ public class AnalyzeCommand implements SlashCommand {
                 fullContext.append("\n[DONNÉES DU MATCH (JSON)]\n");
                 fullContext.append(matchJson).append("\n");
                 
-                if (!fullContext.toString().contains("ANALYSE LOURDE")) {
-                     fullContext.append(PromptRegistry.ANALYZE_COMMAND_CONTEXT);
-                }
+                // On ajoute le contexte spécifique à l'analyse SI il n'est pas déjà présent
+                // (Normalement AiContextService ne l'ajoute plus, donc on l'ajoute ici)
+                fullContext.append(PromptRegistry.ANALYZE_COMMAND_CONTEXT);
 
                 // 3. Récupération de l'historique
                 JSONArray history = ctx.db().getChatHistory(discordId);

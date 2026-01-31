@@ -227,6 +227,7 @@ public class RiotService {
     // --- SMART MATCH FINDER ---
     @Tool("Trouve un match spécifique selon des critères (Champion, KDA, ou index). Index 0 = dernier match.")
     public String findSpecificMatch(String puuid, String region, Integer queueId, String championName, String kdaScore, Integer indexOffset) {
+        if (queueId != null && queueId == 0) queueId = null;
         int safeIndex = (indexOffset != null) ? indexOffset : 0;
         try {
             List<String> matchIds = getMatchHistoryIds(puuid, region, queueId, 20);
@@ -320,6 +321,7 @@ public class RiotService {
     // --- METHODE 2: ANALYSE LÉGÈRE (JSON ARRAY POUR L'IA) ---
     @Tool("Récupère un historique LÉGER (KDA, Win/Loss, Champion) des N derniers matchs. À utiliser pour voir les tendances ou le niveau général.")
     public String getMatchHistorySummary(String puuid, String region, Integer queueId, Integer count) {
+        if (queueId != null && queueId == 0) queueId = null;
         String cacheKey = puuid + "#" + region + "#" + queueId + "#" + count + "#JSON";
         String cachedSummary = matchSummaryCache.get(cacheKey);
         if (cachedSummary != null) return cachedSummary;

@@ -58,9 +58,8 @@ public class AiContextService {
         context.append(getSystemPromptForIntent(intent)).append("\n");
         context.append("Date du jour : ").append(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))).append("\n");
 
-        if (isAnalyzeCommand) {
-             context.append(PromptRegistry.ANALYZE_COMMAND_CONTEXT);
-        }
+        // NOTE: On n'ajoute plus ANALYZE_COMMAND_CONTEXT ici pour éviter la duplication.
+        // C'est la commande appelante (AnalyzeCommand) qui l'ajoutera si nécessaire, ou via le prompt spécifique.
 
         injectEntityContext(event, context, question, intent, isAnalyzeCommand);
 
@@ -82,8 +81,14 @@ public class AiContextService {
                 context.append("   • PUUID: ").append(target.puuid).append("\n");
             }
             context.append("--------------------------------------------------\n");
-            context.append("INSTRUCTION CLÉ: Si la question concerne un de ces joueurs, utilise IMMÉDIATEMENT son PUUID et sa Région pour appeler les outils (getLastMatchId, getRank, etc.).\n");
-            context.append("Si la question demande de COMPARER deux joueurs, appelle les outils pour CHACUN des PUUIDs ci-dessus.\n");
+            context.append("INSTRUCTION CLÉ: Si la question concerne un de ces joueurs, utilise IMMÉDIATEMENT son PUUID et sa Région pour appeler les outils.\n");
+            
+            // Instructions conditionnelles pour éviter la confusion
+            if (intent.isDeepAnalysis) {
+                context.append("-> Pour une analyse détaillée : Appelle 'getLastMatchId' PUIS 'getMatchAnalysis'.\n");
+            } else {
+                context.append("-> Pour un résumé global : Appelle 'getMatchHistorySummary' (et 'getRankInfoString' si pertinent).\n");
+            }
         }
 
         if (intent.queueId != null) {
