@@ -7,6 +7,7 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
 import io.github.cdimascio.dotenv.Dotenv;
 import org.example.command.*;
 import org.example.service.AiContextService;
+import org.example.service.DailyRecapService;
 import org.example.service.MistralService;
 import org.example.service.RiotService;
 import org.example.service.TavilyService;
@@ -27,6 +28,9 @@ public class LolBot extends ListenerAdapter {
         MistralService mistralService = new MistralService(riotService, tavilyService);
         AiContextService aiContextService = new AiContextService(db, riotService);
 
+        // Injection des utilisateurs par défaut
+        injectDefaultUsers(db, riotService);
+
         // Création du contexte global
         BotContext context = new BotContext(db, riotService, mistralService, aiContextService, executor);
 
@@ -42,18 +46,55 @@ public class LolBot extends ListenerAdapter {
         commandManager.addCommand(new PerformanceCommand());
         commandManager.addCommand(new TraceCommand());
         commandManager.addCommand(new TraceTavilyCommand());
+        commandManager.addCommand(new SetRecapChannelCommand());
 
         // Démarrage du bot
         JDA jda = JDABuilder.createDefault(dotenv.get("DISCORD_TOKEN"))
                 .enableIntents(GatewayIntent.MESSAGE_CONTENT)
                 .addEventListeners(commandManager)
-                .build();
+                .build()
+                .awaitReady(); // On attend que le bot soit prêt et connecté
 
         // Enregistrement des commandes Slash
         jda.updateCommands().addCommands(
                 commandManager.getCommandDataList()
         ).queue();
+        
+        // Démarrage du service de récap quotidien
+        new DailyRecapService(db, riotService, jda);
 
         System.out.println("Bot démarré !");
+    }
+
+    private static void injectDefaultUsers(DatabaseManager db, RiotService riotService) {
+        String[][] defaultUsers = {
+            {"384388224912719874", "Yvain", "FDC"},
+            {"1182366478691991653", "RUSHCIEL", "CIEL"},
+            {"203249597169008640", "FDC Adrisir", "0059"},
+            {"321614400677216257", "Hakuryuu974", "EUW"},
+            {"311532666044416000", "THE PGM OF KFC", "EUW"},
+            {"374495079676641291", "ADAM", "NIKEL"},
+            {"353936065436057630", "3arbi macabre", "DOOM"},
+            {"386606978031550465", "SCN1erT", "EUW"}
+        };
+
+        System.out.println("Vérification des utilisateurs par défaut...");
+        for (String[] user : defaultUsers) {
+            String discordId = user[0];
+            String gameName = user[1];
+            String tagLine = user[2];
+
+            if (db.getUser(discordId) == null) {
+                System.out.println("Injection de " + gameName + "#" + tagLine + "...");
+                String puuid = riotService.getPuuid(gameName, tagLine);
+                if (puuid != null && !puuid.startsWith("Error")) {
+                    db.saveUser(discordId, puuid, gameName + "#" + tagLine, "euw1");
+                    System.out.println(" -> Succès !");
+                } else {
+                    System.out.println(" -> Échec : " + puuid);
+                }
+            }
+        }
+        System.out.println("Vérification terminée.");
     }
 }

@@ -36,10 +36,25 @@ public class DatabaseManager {
                 "last_updated INTEGER NOT NULL" +
                 ");";
 
+        String sqlSnapshots = "CREATE TABLE IF NOT EXISTS user_snapshots (" +
+                "discord_id TEXT PRIMARY KEY, " +
+                "tier TEXT, " +
+                "rank TEXT, " +
+                "lp INTEGER, " +
+                "timestamp INTEGER" +
+                ");";
+
+        String sqlConfig = "CREATE TABLE IF NOT EXISTS config (" +
+                "key TEXT PRIMARY KEY, " +
+                "value TEXT" +
+                ");";
+
         try (Connection conn = this.connect();
              Statement stmt = conn.createStatement()) {
             stmt.execute(sqlUsers);
             stmt.execute(sqlSessions);
+            stmt.execute(sqlSnapshots);
+            stmt.execute(sqlConfig);
             
             // Migration simple : ajout de la colonne region si elle manque (pour les vieilles DB)
             try {
@@ -50,6 +65,34 @@ public class DatabaseManager {
         } catch (SQLException e) {
             System.out.println("Erreur init BDD: " + e.getMessage());
         }
+    }
+
+    // --- GESTION CONFIGURATION ---
+    public synchronized void saveConfig(String key, String value) {
+        String sql = "INSERT OR REPLACE INTO config(key, value) VALUES(?, ?)";
+        try (Connection conn = this.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, key);
+            pstmt.setString(2, value);
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Erreur sauvegarde config: " + e.getMessage());
+        }
+    }
+
+    public String getConfig(String key) {
+        String sql = "SELECT value FROM config WHERE key = ?";
+        try (Connection conn = this.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, key);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) {
+                return rs.getString("value");
+            }
+        } catch (SQLException e) {
+            System.out.println("Erreur lecture config: " + e.getMessage());
+        }
+        return null;
     }
 
     // --- GESTION UTILISATEURS ---
@@ -170,6 +213,43 @@ public class DatabaseManager {
         }
     }
 
+    // --- GESTION SNAPSHOTS ---
+    public synchronized void saveSnapshot(String discordId, String tier, String rank, int lp) {
+        String sql = "INSERT OR REPLACE INTO user_snapshots(discord_id, tier, rank, lp, timestamp) VALUES(?, ?, ?, ?, ?)";
+        try (Connection conn = this.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, discordId);
+            pstmt.setString(2, tier);
+            pstmt.setString(3, rank);
+            pstmt.setInt(4, lp);
+            pstmt.setLong(5, System.currentTimeMillis());
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Erreur sauvegarde snapshot: " + e.getMessage());
+        }
+    }
+
+    public SnapshotRecord getSnapshot(String discordId) {
+        String sql = "SELECT tier, rank, lp, timestamp FROM user_snapshots WHERE discord_id = ?";
+        try (Connection conn = this.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, discordId);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) {
+                return new SnapshotRecord(
+                        discordId,
+                        rs.getString("tier"),
+                        rs.getString("rank"),
+                        rs.getInt("lp"),
+                        rs.getLong("timestamp")
+                );
+            }
+        } catch (SQLException e) {
+            System.out.println("Erreur lecture snapshot: " + e.getMessage());
+        }
+        return null;
+    }
+
     public static class UserRecord {
         public String discordId;
         public String puuid;
@@ -186,6 +266,22 @@ public class DatabaseManager {
         // Constructeur de compatibilité
         public UserRecord(String discordId, String puuid, String summonerName) {
             this(discordId, puuid, summonerName, "euw1");
+        }
+    }
+
+    public static class SnapshotRecord {
+        public String discordId;
+        public String tier;
+        public String rank;
+        public int lp;
+        public long timestamp;
+
+        public SnapshotRecord(String discordId, String tier, String rank, int lp, long timestamp) {
+            this.discordId = discordId;
+            this.tier = tier;
+            this.rank = rank;
+            this.lp = lp;
+            this.timestamp = timestamp;
         }
     }
 }

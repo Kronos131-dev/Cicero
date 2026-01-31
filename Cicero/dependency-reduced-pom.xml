@@ -35,9 +35,9 @@
     </repository>
   </repositories>
   <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.target>17</maven.compiler.target>
     <maven.compiler.source>17</maven.compiler.source>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <langchain4j.version>0.36.2</langchain4j.version>
+    <langchain4j.version>1.10.0</langchain4j.version>
   </properties>
 </project>

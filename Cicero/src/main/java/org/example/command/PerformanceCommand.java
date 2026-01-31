@@ -261,11 +261,11 @@ public class PerformanceCommand implements SlashCommand {
 
     private String getRoleEmoji(String role) {
         return switch (role) {
-            case "TOP" -> "<:top:1340021376840765522>";
-            case "JUNGLE" -> "<:jungle:1340021418544730224>";
-            case "MIDDLE" -> "<:mid:1340021462085799978>";
-            case "BOTTOM" -> "<:bot:1340021505765412968>";
-            case "UTILITY" -> "<:support:1340021553039413340>";
+            case "TOP" -> "<:top:1467225357542363307>";
+            case "JUNGLE" -> "<:jungle:1467225403964784640>";
+            case "MIDDLE" -> "<:mid:1467225252139634880>";
+            case "BOTTOM" -> "<:bot:1467225277431021799>";
+            case "UTILITY" -> "<:support:1467225305663013118>";
             default -> "❓";
         };
     }

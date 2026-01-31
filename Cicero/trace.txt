@@ -1,137 +1,182 @@
-TIMESTAMP: 2026-01-31 13:55:16
+TIMESTAMP: 2026-01-31 19:33:35
 === AGENT TRACE (INITIAL CONTEXT) ===
 SYSTEM CONTEXT:
-Tu es une IA experte de League of Legends. Tu as accès à des outils (Riot API, Tavily) pour répondre aux questions.
+Tu es un juge IMPITOYABLE et expert de League of Legends (Niveau Challenger/Analyste Pro). Ton rôle est d'analyser les statistiques JSON d'une partie et d'attribuer une note sur 100 à chaque joueur.
 
-MÉTHODOLOGIE GÉNÉRALE (OBLIGATOIRE) :
-1. DÉTECTION DES CIBLES : Si des joueurs sont identifiés (Section [DONNÉES DES JOUEURS MENTIONNÉS / CIBLES]), tu DOIS récupérer leurs données avant de répondre.
-   - Pour une vue d'ensemble (niveau, historique) : Appelle 'getMatchHistorySummary' (pour 5-10 games) et 'getRankInfoString'.
-   - N'appelle JAMAIS 'getMatchAnalysis' ici, sauf demande explicite d'analyse détaillée.
-2. Comprends l'intention de l'utilisateur.
-3. Utilise les outils appropriés (Riot API pour les stats, Tavily pour la méta/esport).
-4. Réponds de manière claire, concise et structurée (Markdown Discord).
-5. Réponds toujours en Français.
+CRITÈRES DE NOTATION STRICTS PAR RÔLE (IMPORTANT) :
+Pour calculer la note, tu DOIS pondérer les stats selon le rôle :
+- **TOP** : Duel (Solo Kills), Dégâts aux tours (Splitpush), Dégâts tankés/infligés. Le farm est important.
+- **JUNGLE** : Participation aux Objectifs (Dragons/Barons), KP% (Ganks réussis). Le farm est secondaire si l'impact est là.
+- **MID** : Dégâts infligés (DPM), Roams (KP%), Farm (CS/min). Tu dois carry.
+- **ADC (BOTTOM)** : Dégâts infligés, Survie (peu de morts), Farm (CS/min très important).
+- **SUPPORT (UTILITY)** : Vision Score (la moyenne est de 3 par minute,utilise cette metrique pour baisser drastiquement la note s'il est trop en dessous mais ne l'utilise pas pour monter la note), KP% (Assistances), Utilité (Soin/CC). LE FARM NE COMPTE PAS (0 CS est normal), préviligie l'impact réél dans la partie du support (a t il decale aux grubs, trouvé une assiste au mid ou dans la jungle en early/debut mid game etc). Soit très sévère lorsque tu notes ce rôle, c'est trop facile de faire des bonnes stats en restant derrière les veritables acteurs de la partie
 
-Le message final doit prendre la structure d'un message Discord. Il doit tenir dans un seul message (< 2000 caractères).
-Date du jour : 31/01/2026
+RÈGLES GÉNÉRALES :
+1. Ta note doit etre la plus pertinente possible: c'est normal qu'un support est un grand score de vision,, NOTE EN FONCTION DU ROLE ET DE LA DIFFERENCE PAR RAPPORT A SON OPPOSANT.
+2. Préviligie le snowball sur son adversaire: par exemple un jungler qui étouffe son opposant en lui volant tous ses camps de jungle, l'imapact du joueur par rapport à son opposant direct, la difference qu'il créé en golds, degats, kp3. Pense à prendre en compte la classe du champion du joueur pour juger ses stats: s'il joue un tank regarde les degats tanké et moins les degats infligés etc4. Sois EXTRÊME : N'hésite pas à mettre < 20/100 pour un feeder inutile, et > 95/100 pour un vrai 1v9.
+5. Analyse l'impact réel : Un toplaner qui splitpush avec beaucoup de dégâts aux tours mérite des points même avec un KDA moyen.
+6. Si le joueur fait partie de l'equipe qui gagne c'est normal que ses stats soient bien meilleurs note mieux les créateurs du snowball et relativise ceux qui ont juste profités, à l'inverse récompense les joeurs de l'equipe perdantes qui ont essayé, gagné en early avant que la partie deviennent injouables, relativises les notes.7. Contextualise : Si l'équipe a perdu mais que le joueur a des stats divines (SVP), note-le bien.
 
-[DONNÉES DES JOUEURS MENTIONNÉS / CIBLES]
-Voici la correspondance entre les mentions Discord (@Nom) et les données Riot (PUUID) :
---------------------------------------------------
-👤 MENTION: @nlng40
-   • Riot ID: RUSHCIEL#CIEL
-   • Région: euw1
-   • PUUID: _UnEnAWLlAOx1_NA5DfQsnnX3KJD_Tymfiw7xcuiPahi3t7_H56yIUbHxxTat7JVzdbH6Wauo0C7Vg
---------------------------------------------------
-👤 MENTION: @fdckronos
-   • Riot ID: Yvain#FDC
-   • Région: euw1
-   • PUUID: E73QLhjiGhjNLuReo9FC6wTLkpKL24nz2WZNWWr7EjyTieLRaRCN3a0rHg8Qs8Y6QSuT8uW84VSCoA
---------------------------------------------------
-INSTRUCTION CLÉ: Si la question concerne un de ces joueurs, utilise IMMÉDIATEMENT son PUUID et sa Région pour appeler les outils.
--> Pour un résumé global : Appelle 'getMatchHistorySummary' (et 'getRankInfoString' si pertinent).
-
-[CONTRAINTE DE LONGUEUR]
-L'utilisateur n'a PAS demandé de détails. Tu DOIS être CONCIS.
-Ta réponse doit tenir impérativement dans UN SEUL message Discord (< 1900 caractères).
-Va droit au but. Résume l'essentiel. Pas de blabla inutile.
-
-
-[HISTORY (Available via Tool)]
+Tu dois aussi écrire une phrase courte (max 15 mots) et incisive (taquine ou élogieuse) pour résumer leur performance.
+IMPORTANT : Tu dois répondre UNIQUEMENT avec un JSON valide respectant STRICTEMENT ce format :
 [
   {
-    "role": "user",
-    "content": "analyse mon profile"
+    "name": "Pseudo#TAG",
+    "champion": "NomChampion",
+    "role": "TOP" (ou JUNGLE, MIDDLE, BOTTOM, UTILITY),
+    "team": 100 (Blue) ou 200 (Red),
+    "score": 85,
+    "kda": "10/2/5",
+    "comment": "A carry la game tout seul !"
   },
-  {
-    "role": "assistant",
-    "content": "Voici ton résumé **Yvain#FDC** (EUW) :\n\n### **📊 Rang & Stats (10 derniers matchs)**\n- **Rang** : **Emerald III** (38 LP) | 37W/37L (50% WR).\n- **Rôle principal** : **Jungle** (9/10 matchs) | **Top** (1 match, Garen).\n- **Champion le plus joué** : **Diana** (8 matchs, 62.5% WR).\n\n---\n\n### **🔥 Performances récentes**\n- **Dernier match** (31/01/2026) : **Diana** - 11/10/13 (Victoire, 2279s).\n- **Winrate Diana** : **5/8 victoires** (62.5% WR).\n- **KDA moyen (Jungle)** : **7.2/7.8/7.6** | **CS/min** : **6.5** | **Vision** : **17.5** (ward/min).\n- **Match le plus long** : 46min (Défaite, Diana 13/8/12).\n\n---\n### **📈 Points à améliorer**\n- **Early game** : 3 défaites sur 4 matchs avec <5 kills avant 15min.\n- **Vision** : Seulement **17.5 wards/min** (objectif : 20+ en Jungle).\n- **Diversité** : 80% Diana → Risque de counter-pick.\n\n---\n### **💡 Conseil rapide**\n- **Optimise tes runs** : 2 défaites avec >8 morts (ex: 1/8/0 sur Diana).\n- **Focus Farm** : CS/min moyen à **6.5** (objectif : 7+ en Emerald).\n\nTu veux une analyse plus précise d\u2019un match ? 🚀"
-  }
+  ... (pour les 10 joueurs)
 ]
+Ne mets aucun texte avant ou après le JSON.
+AJOUT OBLIGATOIRE : Ajoute le champ "win": true/false pour chaque joueur.
 -----------------------------------------
-USER QUESTION: compare <@1182366478691991653> et <@384388224912719874>
+USER QUESTION: Voici les données du match :
+{"metadata":{"mode":"CLASSIC","type":"MATCHED_GAME","version":"16.2.741.3171","duration_sec":1770,"matchId":"EUW1_7710210782"},"timeline_events":[{"victim":"Nocturne","time":4,"killer":"Varus","type":"KILL"},{"victim":"Pantheon","time":4,"killer":"Ezreal","type":"KILL"},{"victim":"Zac","time":4,"killer":"Zed","type":"KILL"},{"victim":"Varus","time":4,"killer":"Ezreal","type":"KILL"},{"victim":"Zed","time":4,"killer":"Ryze","type":"KILL"},{"victim":"Zac","time":5,"killer":"Zed","type":"KILL"},{"victim":"Pantheon","time":6,"killer":"Bard","type":"KILL"},{"victim":"Varus","time":7,"killer":"Ezreal","type":"KILL"},{"victim":"Ryze","time":8,"killer":"Zed","type":"KILL"},{"killer_team":"ENEMY","subtype":"AIR_DRAGON","time":8,"type":"OBJECTIVE","monster":"DRAGON"},{"victim":"Nocturne","time":9,"killer":"Varus","type":"KILL"},{"victim":"Zac","time":9,"killer":"Ezreal","type":"KILL"},{"victim":"Garen","time":10,"killer":"Gwen","type":"KILL"},{"killer_team":"ALLY","time":11,"type":"OBJECTIVE","monster":"HORDE"},{"killer_team":"ALLY","time":11,"type":"OBJECTIVE","monster":"HORDE"},{"killer_team":"ALLY","time":11,"type":"OBJECTIVE","monster":"HORDE"},{"victim":"Garen","time":12,"killer":"Nocturne","type":"KILL"},{"victim":"Ryze","time":12,"killer":"Zed","type":"KILL"},{"victim":"Pantheon","time":12,"killer":"Bard","type":"KILL"},{"victim":"Zac","time":12,"killer":"Nocturne","type":"KILL"},{"victim":"Garen","time":14,"killer":"Gwen","type":"KILL"},{"victim":"Pantheon","time":14,"killer":"Ezreal","type":"KILL"},{"victim":"Ryze","time":14,"killer":"Zed","type":"KILL"},{"victim":"Ezreal","time":14,"killer":"Varus","type":"KILL"},{"killer_team":"ENEMY","subtype":"HEXTECH_DRAGON","time":14,"type":"OBJECTIVE","monster":"DRAGON"},{"victim":"Gwen","time":15,"killer":"Garen","type":"KILL"},{"victim":"Nocturne","time":15,"killer":"Pantheon","type":"KILL"},{"victim":"Bard","time":15,"killer":"Pantheon","type":"KILL"},{"victim":"Pantheon","time":15,"killer":"Bard","type":"KILL"},{"victim":"Varus","time":15,"killer":"Zed","type":"KILL"},{"killer_team":"ENEMY","time":15,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"BOT_LANE"},{"killer_team":"ENEMY","time":16,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"TOP_LANE"},{"victim":"Varus","time":16,"killer":"Zed","type":"KILL"},{"victim":"Pantheon","time":16,"killer":"Zed","type":"KILL"},{"killer_team":"ENEMY","time":17,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"MID_LANE"},{"killer_team":"ALLY","time":17,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"BOT_LANE"},{"killer_team":"ENEMY","time":17,"type":"OBJECTIVE","monster":"RIFTHERALD"},{"victim":"Ezreal","time":17,"killer":"Varus","type":"KILL"},{"victim":"Ryze","time":17,"killer":"Zed","type":"KILL"},{"victim":"Varus","time":18,"killer":"Nocturne","type":"KILL"},{"victim":"Zac","time":18,"killer":"Ezreal","type":"KILL"},{"victim":"Ezreal","time":19,"killer":"Pantheon","type":"KILL"},{"victim":"Varus","time":19,"killer":"Bard","type":"KILL"},{"victim":"Bard","time":19,"killer":"Garen","type":"KILL"},{"victim":"Ryze","time":19,"killer":"Zed","type":"KILL"},{"victim":"Pantheon","time":19,"killer":"Zed","type":"KILL"},{"killer_team":"ENEMY","subtype":"EARTH_DRAGON","time":20,"type":"OBJECTIVE","monster":"DRAGON"},{"victim":"Ezreal","time":20,"killer":"Pantheon","type":"KILL"},{"victim":"Garen","time":20,"killer":"Bard","type":"KILL"},{"victim":"Pantheon","time":21,"killer":"Zed","type":"KILL"},{"victim":"Zac","time":21,"killer":"Gwen","type":"KILL"},{"victim":"Ryze","time":21,"killer":"Gwen","type":"KILL"},{"victim":"Nocturne","time":21,"killer":"Garen","type":"KILL"},{"victim":"Zac","time":22,"killer":"Zed","type":"KILL"},{"killer_team":"ENEMY","time":22,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"TOP_LANE"},{"victim":"Ryze","time":23,"killer":"Ezreal","type":"KILL"},{"victim":"Varus","time":23,"killer":"Zed","type":"KILL"},{"victim":"Garen","time":23,"killer":"Ezreal","type":"KILL"},{"victim":"Nocturne","time":23,"killer":"Garen","type":"KILL"},{"victim":"Pantheon","time":23,"killer":"Bard","type":"KILL"},{"victim":"Zac","time":23,"killer":"Ezreal","type":"KILL"},{"killer_team":"ENEMY","time":23,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"MID_LANE"},{"victim":"Bard","time":24,"killer":"Ryze","type":"KILL"},{"killer_team":"ENEMY","time":24,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"BOT_LANE"},{"victim":"Ryze","time":24,"killer":"Ezreal","type":"KILL"},{"killer_team":"ALLY","time":24,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"TOP_LANE"},{"victim":"Varus","time":25,"killer":"Nocturne","type":"KILL"},{"victim":"Pantheon","time":25,"killer":"Zed","type":"KILL"},{"victim":"Zac","time":25,"killer":"Gwen","type":"KILL"},{"victim":"Ryze","time":25,"killer":"Nocturne","type":"KILL"},{"victim":"Garen","time":25,"killer":"Bard","type":"KILL"},{"killer_team":"ENEMY","time":25,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"BOT_LANE"},{"killer_team":"ENEMY","subtype":"EARTH_DRAGON","time":25,"type":"OBJECTIVE","monster":"DRAGON"},{"victim":"Bard","time":26,"killer":"Pantheon","type":"KILL"},{"victim":"Zed","time":26,"killer":"Ryze","type":"KILL"},{"victim":"Nocturne","time":26,"killer":"Pantheon","type":"KILL"},{"victim":"Ezreal","time":26,"killer":"Varus","type":"KILL"},{"victim":"Zac","time":27,"killer":"Gwen","type":"KILL"},{"victim":"Ryze","time":27,"killer":"Gwen","type":"KILL"},{"victim":"Gwen","time":27,"killer":"Garen","type":"KILL"},{"killer_team":"ALLY","time":27,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"MID_LANE"},{"victim":"Bard","time":28,"killer":"Pantheon","type":"KILL"},{"victim":"Varus","time":28,"killer":"Nocturne","type":"KILL"},{"victim":"Zac","time":28,"killer":"Ezreal","type":"KILL"},{"victim":"Zed","time":28,"killer":"Garen","type":"KILL"},{"victim":"Pantheon","time":28,"killer":"Ezreal","type":"KILL"},{"killer_team":"ENEMY","time":28,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"MID_LANE"},{"killer_team":"ENEMY","time":29,"type":"STRUCTURE","building":"INHIBITOR_BUILDING","lane":"MID_LANE"},{"victim":"Ryze","time":29,"killer":"Gwen","type":"KILL"},{"victim":"Gwen","time":29,"killer":"Garen","type":"KILL"},{"victim":"Zac","time":29,"killer":"Bard","type":"KILL"},{"victim":"Garen","time":29,"killer":"Ezreal","type":"KILL"},{"victim":"Pantheon","time":29,"killer":"Bard","type":"KILL"},{"victim":"Varus","time":29,"killer":"Ezreal","type":"KILL"},{"killer_team":"ENEMY","time":29,"type":"STRUCTURE","building":"INHIBITOR_BUILDING","lane":"BOT_LANE"},{"killer_team":"ENEMY","time":29,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"MID_LANE"},{"killer_team":"ENEMY","time":29,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"MID_LANE"}],"teams":{"red":{"bans":[555,54,131,24,234],"objectives":{"baron":0,"horde":0,"dragon":4,"riftHerald":1,"tower":10},"win":true},"blue":{"bans":[119,7,79,143,141],"objectives":{"baron":0,"horde":3,"dragon":0,"riftHerald":0,"tower":3},"win":false}},"target_player":{"role":"MIDDLE","final_items":[1058,3157,3040,3174,6657,3363],"rune_primary_tree_name":"Sorcellerie","wards_placed":7,"advanced":{"skillshots_dodged":51,"kp_percent":0.4090909090909091,"gold_per_min":414.65070493004987,"solo_kills":1,"turret_plates":6,"dmg_percent":0.19280419287630898,"lane_minions_first_10_min":84},"control_wards":0,"dmg_dealt":22902,"gold":12235,"rune_keystone_name":"Rush phasique","rune_secondary_tree_name":"Inspiration","rune_secondary_tree":8300,"vision_score":11,"jungle_enemy":0,"jungle_ally":2,"spells":[6,4],"win":false,"a":6,"build_path":[{"itemId":1056,"itemName":"Anneau de Doran","time":1},{"itemId":2003,"itemName":"Potion de soin","time":1},{"itemId":2003,"itemName":"Potion de soin","time":1},{"itemId":3070,"itemName":"Larme de la déesse","time":4},{"itemId":1028,"itemName":"Cristal de rubis","time":4},{"itemId":2031,"itemName":"Potion rechargeable","time":4},{"itemId":1026,"itemName":"Baguette explosive","time":7},{"itemId":3803,"itemName":"Catalyseur de l'éternité","time":10},{"itemId":1001,"itemName":"Bottes","time":10},{"itemId":6657,"itemName":"Bâton séculaire","time":12},{"itemId":6657,"itemName":"Bâton séculaire","time":12},{"itemId":1029,"itemName":"Armure d'étoffe","time":12},{"itemId":3047,"itemName":"Coques en acier","time":14},{"itemId":3802,"itemName":"Chapitre perdu","time":18},{"itemId":3363,"itemName":"Altération divinatoire","time":20},{"itemId":3003,"itemName":"Bâton de l'archange","time":21},{"itemId":1052,"itemName":"Tome d'amplification","time":22},{"itemId":2420,"itemName":"Protège-bras du savant","time":24},{"itemId":3157,"itemName":"Sablier de Zhonya","time":27},{"itemId":1058,"itemName":"Baguette trop grosse","time":27}],"d":11,"k":3,"dmg_taken":38757,"rune_primary_tree":8200,"skill_order":["W","E","Q","Q","Q","R","Q","E","Q","E","R","E","E","W","W","R"],"rune_keystone":8230,"cs":204,"name":"RUSHCIEL","kda_str":"3/11/6","champion":"Ryze","final_items_names":["Baguette trop grosse","Sablier de Zhonya","Étreinte du séraphin","Avancée blindée","Bâton séculaire","Altération divinatoire"]},"enemies":[{"role":"TOP","final_items":[1056,4633,3020,1082,2510,4645,3340],"rune_primary_tree_name":"Précision","wards_placed":12,"advanced":{"skillshots_dodged":19,"kp_percent":0.3076923076923077,"gold_per_min":445.5504267516748,"solo_kills":1,"turret_plates":15,"dmg_percent":0.21274724528489897,"lane_minions_first_10_min":69},"control_wards":0,"dmg_dealt":32993,"gold":13147,"rune_keystone_name":"Conquérant","rune_secondary_tree_name":"Sorcellerie","rune_secondary_tree":8200,"vision_score":23,"jungle_enemy":10,"jungle_ally":0,"spells":[4,14],"win":true,"a":8,"d":3,"k":8,"dmg_taken":33938,"rune_primary_tree":8000,"rune_keystone":8010,"cs":224,"name":"otakunabochan","kda_str":"8/3/8","champion":"Gwen","final_items_names":["Anneau de Doran","Créateur de failles","Chaussures de sorcier","Sceau noir","Aube et crépuscule","Flamme-ombre","Balise camouflée"]},{"role":"JUNGLE","final_items":[3158,2055,6631,6333,3073,3364],"rune_primary_tree_name":"Précision","wards_placed":6,"advanced":{"skillshots_dodged":84,"kp_percent":0.4423076923076923,"gold_per_min":445.98625965033995,"solo_kills":2,"turret_plates":4,"dmg_percent":0.14215835168945273,"lane_minions_first_10_min":9},"control_wards":4,"dmg_dealt":22046,"gold":13159,"rune_keystone_name":"Conquérant","rune_secondary_tree_name":"Domination","rune_secondary_tree":8100,"vision_score":36,"jungle_enemy":30,"jungle_ally":108,"spells":[11,4],"win":true,"a":17,"d":6,"k":6,"dmg_taken":38240,"rune_primary_tree":8000,"rune_keystone":8010,"cs":225,"name":"Korstog","kda_str":"6/6/17","champion":"Nocturne","final_items_names":["Bottes de lucidité","Balise de contrôle","Estropieur","Danse de la mort","Hexplaque expérimentale","Brouilleur oraculaire"]},{"role":"MIDDLE","final_items":[1054,6692,3171,6699,3071,6696,3364],"rune_primary_tree_name":"Précision","wards_placed":2,"advanced":{"skillshots_dodged":58,"kp_percent":0.5192307692307693,"gold_per_min":488.02948967126883,"solo_kills":6,"turret_plates":11,"dmg_percent":0.21451719575303574,"lane_minions_first_10_min":62},"control_wards":0,"dmg_dealt":33267,"gold":14400,"rune_keystone_name":"Conquérant","rune_secondary_tree_name":"Sorcellerie","rune_secondary_tree":8200,"vision_score":16,"jungle_enemy":4,"jungle_ally":0,"spells":[4,14],"win":true,"a":12,"d":3,"k":15,"dmg_taken":28061,"rune_primary_tree":8000,"rune_keystone":8010,"cs":181,"name":"MrScimmia","kda_str":"15/3/12","champion":"Zed","final_items_names":["Bouclier de Doran","Éclipse","Lucidité pourpre","Cyclosabre voltaïque","Couperet noir","Arc axiomatique","Brouilleur oraculaire"]},{"role":"BOTTOM","final_items":[1055,3078,3042,6694,2021,1037,3363],"rune_primary_tree_name":"Précision","wards_placed":2,"advanced":{"skillshots_dodged":185,"kp_percent":0.5384615384615384,"gold_per_min":552.6190382975823,"solo_kills":1,"turret_plates":14,"dmg_percent":0.249219524360414,"lane_minions_first_10_min":75},"control_wards":0,"dmg_dealt":38649,"gold":16306,"rune_keystone_name":"Tempo mortel","rune_secondary_tree_name":"Inspiration","rune_secondary_tree":8300,"vision_score":4,"jungle_enemy":6,"jungle_ally":0,"spells":[4,21],"win":true,"a":14,"d":5,"k":14,"dmg_taken":28950,"rune_primary_tree":8000,"rune_keystone":8008,"cs":229,"name":"GOD COMPLEX AHAH","kda_str":"14/5/14","champion":"Ezreal","final_items_names":["Lame de Doran","Force de la trinité","Muramana","Rancune de Serylda","Foreuse","Pioche","Altération divinatoire"]},{"role":"UTILITY","final_items":[3742,6653,3877,3091,3009,1052,3364],"rune_primary_tree_name":"Domination","wards_placed":16,"advanced":{"skillshots_dodged":150,"kp_percent":0.5576923076923077,"gold_per_min":406.7514694462402,"solo_kills":1,"turret_plates":13,"dmg_percent":0.18135768291219861,"lane_minions_first_10_min":13},"control_wards":0,"dmg_dealt":28125,"gold":12002,"rune_keystone_name":"Électrocution","rune_secondary_tree_name":"Sorcellerie","rune_secondary_tree":8200,"vision_score":44,"jungle_enemy":0,"jungle_ally":0,"spells":[4,14],"win":true,"a":20,"d":5,"k":9,"dmg_taken":23857,"rune_primary_tree":8100,"rune_keystone":8112,"cs":33,"name":"FLEXXO","kda_str":"9/5/20","champion":"Bard","final_items_names":["Plaque du mort","Tourment de Liandry","Mélodie du sang","Au bout du rouleau","Bottes de célérité","Tome d'amplification","Brouilleur oraculaire"]}],"allies":[{"role":"TOP","final_items":[3006,6631,3046,3161,3053,3364],"rune_primary_tree_name":"Sorcellerie","wards_placed":7,"advanced":{"skillshots_dodged":85,"kp_percent":0.45454545454545453,"gold_per_min":469.1090333722063,"solo_kills":1,"turret_plates":6,"dmg_percent":0.24742817096826852,"lane_minions_first_10_min":69},"control_wards":0,"dmg_dealt":29391,"gold":13842,"rune_keystone_name":"Rush phasique","rune_secondary_tree_name":"Volonté","rune_secondary_tree":8400,"vision_score":17,"jungle_enemy":0,"jungle_ally":0,"spells":[14,4],"win":false,"a":3,"d":7,"k":7,"dmg_taken":37414,"rune_primary_tree":8200,"rune_keystone":8230,"cs":238,"name":"BlindBambi","kda_str":"7/7/3","champion":"Garen","final_items_names":["Jambières du berzerker","Estropieur","Danseur fantôme","Lance de Shojin","Gage de Sterak","Brouilleur oraculaire"]},{"role":"JUNGLE","final_items":[3211,3068,3075,1082,3047,1028,3364],"rune_primary_tree_name":"Volonté","wards_placed":9,"advanced":{"skillshots_dodged":66,"kp_percent":0.6818181818181818,"gold_per_min":333.3499150919692,"solo_kills":0,"turret_plates":0,"dmg_percent":0.19027542634008052,"lane_minions_first_10_min":6},"control_wards":8,"dmg_dealt":22602,"gold":9836,"rune_keystone_name":"Après-coup","rune_secondary_tree_name":"Précision","rune_secondary_tree":8000,"vision_score":34,"jungle_enemy":4,"jungle_ally":96,"spells":[11,4],"win":false,"a":15,"d":12,"k":0,"dmg_taken":44479,"rune_primary_tree":8400,"rune_keystone":8439,"cs":156,"name":"SaucisseHerta2","kda_str":"0/12/15","champion":"Zac","final_items_names":["Manteau de spectre","Égide solaire","Cotte épineuse","Sceau noir","Coques en acier","Cristal de rubis","Brouilleur oraculaire"]},{"role":"BOTTOM","final_items":[3142,3042,3814,3026,1055,3363],"rune_primary_tree_name":"Sorcellerie","wards_placed":11,"advanced":{"skillshots_dodged":43,"kp_percent":0.5909090909090909,"gold_per_min":452.75664523358245,"solo_kills":0,"turret_plates":3,"dmg_percent":0.20704219289288286,"lane_minions_first_10_min":60},"control_wards":0,"dmg_dealt":24593,"gold":13359,"rune_keystone_name":"Comète arcanique","rune_secondary_tree_name":"Inspiration","rune_secondary_tree":8300,"vision_score":16,"jungle_enemy":0,"jungle_ally":0,"spells":[21,4],"win":false,"a":8,"d":10,"k":5,"dmg_taken":26222,"rune_primary_tree":8200,"rune_keystone":8229,"cs":185,"name":"Vulkan XVIIIth","kda_str":"5/10/8","champion":"Varus","final_items_names":["Lame spectre de Youmuu","Muramana","Manteau de la nuit","Ange gardien","Lame de Doran","Altération divinatoire"]},{"role":"UTILITY","final_items":[3877,3179,3047,6692,3071,3364],"rune_primary_tree_name":"Précision","wards_placed":16,"advanced":{"skillshots_dodged":52,"kp_percent":0.7272727272727273,"gold_per_min":367.1383991880937,"solo_kills":0,"turret_plates":1,"dmg_percent":0.16245001692245908,"lane_minions_first_10_min":14},"control_wards":5,"dmg_dealt":19296,"gold":10833,"rune_keystone_name":"Attaque soutenue","rune_secondary_tree_name":"Domination","rune_secondary_tree":8100,"vision_score":31,"jungle_enemy":0,"jungle_ally":0,"spells":[4,14],"win":false,"a":9,"d":12,"k":7,"dmg_taken":29336,"rune_primary_tree":8000,"rune_keystone":8005,"cs":49,"name":"SolbadguyArcane","kda_str":"7/12/9","champion":"Pantheon","final_items_names":["Mélodie du sang","Glaive d'ombre","Coques en acier","Éclipse","Couperet noir","Brouilleur oraculaire"]}]}
 =====================================================
 
 === FINAL CHAT MEMORY (FULL INTERACTION) ===
-[SYSTEM]: SystemMessage { text = "Tu es une IA experte de League of Legends. Tu as accès à des outils (Riot API, Tavily) pour répondre aux questions.
+[SYSTEM]: SystemMessage { text = "Tu es un juge IMPITOYABLE et expert de League of Legends (Niveau Challenger/Analyste Pro). Ton rôle est d'analyser les statistiques JSON d'une partie et d'attribuer une note sur 100 à chaque joueur.
 
-MÉTHODOLOGIE GÉNÉRALE (OBLIGATOIRE) :
-1. DÉTECTION DES CIBLES : Si des joueurs sont identifiés (Section [DONNÉES DES JOUEURS MENTIONNÉS / CIBLES]), tu DOIS récupérer leurs données avant de répondre.
-   - Pour une vue d'ensemble (niveau, historique) : Appelle 'getMatchHistorySummary' (pour 5-10 games) et 'getRankInfoString'.
-   - N'appelle JAMAIS 'getMatchAnalysis' ici, sauf demande explicite d'analyse détaillée.
-2. Comprends l'intention de l'utilisateur.
-3. Utilise les outils appropriés (Riot API pour les stats, Tavily pour la méta/esport).
-4. Réponds de manière claire, concise et structurée (Markdown Discord).
-5. Réponds toujours en Français.
+CRITÈRES DE NOTATION STRICTS PAR RÔLE (IMPORTANT) :
+Pour calculer la note, tu DOIS pondérer les stats selon le rôle :
+- **TOP** : Duel (Solo Kills), Dégâts aux tours (Splitpush), Dégâts tankés/infligés. Le farm est important.
+- **JUNGLE** : Participation aux Objectifs (Dragons/Barons), KP% (Ganks réussis). Le farm est secondaire si l'impact est là.
+- **MID** : Dégâts infligés (DPM), Roams (KP%), Farm (CS/min). Tu dois carry.
+- **ADC (BOTTOM)** : Dégâts infligés, Survie (peu de morts), Farm (CS/min très important).
+- **SUPPORT (UTILITY)** : Vision Score (la moyenne est de 3 par minute,utilise cette metrique pour baisser drastiquement la note s'il est trop en dessous mais ne l'utilise pas pour monter la note), KP% (Assistances), Utilité (Soin/CC). LE FARM NE COMPTE PAS (0 CS est normal), préviligie l'impact réél dans la partie du support (a t il decale aux grubs, trouvé une assiste au mid ou dans la jungle en early/debut mid game etc). Soit très sévère lorsque tu notes ce rôle, c'est trop facile de faire des bonnes stats en restant derrière les veritables acteurs de la partie
 
-Le message final doit prendre la structure d'un message Discord. Il doit tenir dans un seul message (< 2000 caractères).
-Date du jour : 31/01/2026
+RÈGLES GÉNÉRALES :
+1. Ta note doit etre la plus pertinente possible: c'est normal qu'un support est un grand score de vision,, NOTE EN FONCTION DU ROLE ET DE LA DIFFERENCE PAR RAPPORT A SON OPPOSANT.
+2. Préviligie le snowball sur son adversaire: par exemple un jungler qui étouffe son opposant en lui volant tous ses camps de jungle, l'imapact du joueur par rapport à son opposant direct, la difference qu'il créé en golds, degats, kp3. Pense à prendre en compte la classe du champion du joueur pour juger ses stats: s'il joue un tank regarde les degats tanké et moins les degats infligés etc4. Sois EXTRÊME : N'hésite pas à mettre < 20/100 pour un feeder inutile, et > 95/100 pour un vrai 1v9.
+5. Analyse l'impact réel : Un toplaner qui splitpush avec beaucoup de dégâts aux tours mérite des points même avec un KDA moyen.
+6. Si le joueur fait partie de l'equipe qui gagne c'est normal que ses stats soient bien meilleurs note mieux les créateurs du snowball et relativise ceux qui ont juste profités, à l'inverse récompense les joeurs de l'equipe perdantes qui ont essayé, gagné en early avant que la partie deviennent injouables, relativises les notes.7. Contextualise : Si l'équipe a perdu mais que le joueur a des stats divines (SVP), note-le bien.
 
-[DONNÉES DES JOUEURS MENTIONNÉS / CIBLES]
-Voici la correspondance entre les mentions Discord (@Nom) et les données Riot (PUUID) :
---------------------------------------------------
-👤 MENTION: @nlng40
-   • Riot ID: RUSHCIEL#CIEL
-   • Région: euw1
-   • PUUID: _UnEnAWLlAOx1_NA5DfQsnnX3KJD_Tymfiw7xcuiPahi3t7_H56yIUbHxxTat7JVzdbH6Wauo0C7Vg
---------------------------------------------------
-👤 MENTION: @fdckronos
-   • Riot ID: Yvain#FDC
-   • Région: euw1
-   • PUUID: E73QLhjiGhjNLuReo9FC6wTLkpKL24nz2WZNWWr7EjyTieLRaRCN3a0rHg8Qs8Y6QSuT8uW84VSCoA
---------------------------------------------------
-INSTRUCTION CLÉ: Si la question concerne un de ces joueurs, utilise IMMÉDIATEMENT son PUUID et sa Région pour appeler les outils.
--> Pour un résumé global : Appelle 'getMatchHistorySummary' (et 'getRankInfoString' si pertinent).
-
-[CONTRAINTE DE LONGUEUR]
-L'utilisateur n'a PAS demandé de détails. Tu DOIS être CONCIS.
-Ta réponse doit tenir impérativement dans UN SEUL message Discord (< 1900 caractères).
-Va droit au but. Résume l'essentiel. Pas de blabla inutile.
-" }
-[USER]: UserMessage { name = null, contents = [TextContent { text = "compare <@1182366478691991653> et <@384388224912719874>" }], attributes = {} }
-[AI]: AiMessage { text = null, thinking = null, toolExecutionRequests = [ToolExecutionRequest { id = "lID6B7pOA", name = "getMatchHistorySummary", arguments = "{"arg0": "_UnEnAWLlAOx1_NA5DfQsnnX3KJD_Tymfiw7xcuiPahi3t7_H56yIUbHxxTat7JVzdbH6Wauo0C7Vg", "arg1": "euw1", "arg2": 0, "arg3": 10}" }, ToolExecutionRequest { id = "H0xBT1eb8", name = "getMatchHistorySummary", arguments = "{"arg0": "E73QLhjiGhjNLuReo9FC6wTLkpKL24nz2WZNWWr7EjyTieLRaRCN3a0rHg8Qs8Y6QSuT8uW84VSCoA", "arg1": "euw1", "arg2": 0, "arg3": 10}" }, ToolExecutionRequest { id = "JtIGeO2b0", name = "getRankInfoString", arguments = "{"arg0": "_UnEnAWLlAOx1_NA5DfQsnnX3KJD_Tymfiw7xcuiPahi3t7_H56yIUbHxxTat7JVzdbH6Wauo0C7Vg", "arg1": "euw1"}" }, ToolExecutionRequest { id = "suIYcGsSU", name = "getRankInfoString", arguments = "{"arg0": "E73QLhjiGhjNLuReo9FC6wTLkpKL24nz2WZNWWr7EjyTieLRaRCN3a0rHg8Qs8Y6QSuT8uW84VSCoA", "arg1": "euw1"}" }], attributes = {} }
-[TOOL_EXECUTION_RESULT]: ToolExecutionResultMessage { id = "lID6B7pOA" toolName = "getMatchHistorySummary" text = "[{"mode":"CLASSIC","date":1769853290740,"duration":1039,"cs":108,"gold":9058,"vision":10,"role":"MIDDLE","kda":"12/2/7","win":true,"items":[1055,2031,6698,3179,3133,3171,3364],"matchId":"EUW1_7709640296","champion":"Qiyana"},{"mode":"CLASSIC","date":1769722553481,"duration":1640,"cs":205,"gold":13434,"vision":16,"role":"MIDDLE","kda":"11/4/9","win":true,"items":[4645,3157,3146,1082,3173,3364],"matchId":"EUW1_7707649766","champion":"Akali"},{"mode":"CLASSIC","date":1769720797084,"duration":1299,"cs":103,"gold":5943,"vision":8,"role":"MIDDLE","kda":"2/7/0","win":false,"items":[1054,2031,3146,1052,1001,3340],"matchId":"EUW1_7707593688","champion":"Akali"},{"mode":"CLASSIC","date":1769708068382,"duration":1846,"cs":206,"gold":13381,"vision":24,"role":"JUNGLE","kda":"5/7/4","win":false,"items":[6701,3179,3158,3814,3035,3133,3364],"matchId":"EUW1_7707184590","champion":"Qiyana"},{"mode":"CLASSIC","date":1769537084647,"duration":1691,"cs":238,"gold":15839,"vision":13,"role":"MIDDLE","kda":"13/4/2","win":true,"items":[3179,6694,6698,6695,3134,3173,3364],"matchId":"EUW1_7704381339","champion":"Qiyana"},{"mode":"CLASSIC","date":1769102812338,"duration":1503,"cs":187,"gold":11672,"vision":34,"role":"MIDDLE","kda":"9/3/1","win":false,"items":[1055,3179,6698,6694,3171,3134,3364],"matchId":"EUW1_7696681443","champion":"Qiyana"},{"mode":"CLASSIC","date":1769028356911,"duration":1848,"cs":229,"gold":15163,"vision":24,"role":"MIDDLE","kda":"14/3/7","win":true,"items":[3179,6698,6694,6695,3174,3364],"matchId":"EUW1_7695648623","champion":"Qiyana"},{"mode":"CLASSIC","date":1769017305455,"duration":1739,"cs":202,"gold":12830,"vision":27,"role":"MIDDLE","kda":"10/6/7","win":true,"items":[3134,6694,6698,3173,3179,1036,3364],"matchId":"EUW1_7695255653","champion":"Qiyana"},{"mode":"CLASSIC","date":1769014726390,"duration":2139,"cs":315,"gold":16924,"vision":21,"role":"MIDDLE","kda":"7/11/9","win":false,"items":[3115,3157,3173,3089,4645,1026,3340],"matchId":"EUW1_7695172057","champion":"Azir"},{"mode":"CLASSIC","date":1768767008634,"duration":1893,"cs":241,"gold":14822,"vision":26,"role":"MIDDLE","kda":"10/5/9","win":true,"items":[2055,6694,6698,3171,2520,6695,3364],"matchId":"EUW1_7691459553","champion":"Qiyana"}]" }
-[TOOL_EXECUTION_RESULT]: ToolExecutionResultMessage { id = "H0xBT1eb8" toolName = "getMatchHistorySummary" text = "[{"mode":"CLASSIC","date":1769623278454,"duration":2279,"cs":294,"gold":18511,"vision":27,"role":"JUNGLE","kda":"11/10/13","win":true,"items":[2510,3143,4633,6653,8020,3111,3364],"matchId":"EUW1_7705802129","champion":"Diana"},{"mode":"CLASSIC","date":1769509111588,"duration":2149,"cs":356,"gold":20149,"vision":23,"role":"JUNGLE","kda":"13/6/5","win":true,"items":[2510,3157,3111,4633,4645,3089,3364],"matchId":"EUW1_7703838489","champion":"Diana"},{"mode":"CLASSIC","date":1769458001656,"duration":1565,"cs":150,"gold":11466,"vision":10,"role":"JUNGLE","kda":"7/11/6","win":false,"items":[3047,3157,2510,4633,1082,3364],"matchId":"EUW1_7703180271","champion":"Diana"},{"mode":"CLASSIC","date":1769443688793,"duration":2000,"cs":233,"gold":13830,"vision":19,"role":"JUNGLE","kda":"5/11/14","win":true,"items":[4633,3143,2510,3111,2508,3147,3364],"matchId":"EUW1_7702729508","champion":"Diana"},{"mode":"CLASSIC","date":1769442112282,"duration":926,"cs":137,"gold":7187,"vision":15,"role":"JUNGLE","kda":"4/0/5","win":true,"items":[3111,1082,2510,1052,3364],"matchId":"EUW1_7702693482","champion":"Diana"},{"mode":"CLASSIC","date":1769439524061,"duration":1341,"cs":134,"gold":6830,"vision":8,"role":"JUNGLE","kda":"1/8/0","win":false,"items":[3111,1082,2510,3108,1052,1028,3364],"matchId":"EUW1_7702635735","champion":"Diana"},{"mode":"CLASSIC","date":1769354770424,"duration":2761,"cs":312,"gold":20912,"vision":26,"role":"TOP","kda":"12/8/6","win":false,"items":[3033,6631,3006,3046,3742,6333,3340],"matchId":"EUW1_7701214337","champion":"Garen"},{"mode":"CLASSIC","date":1769338212668,"duration":2402,"cs":263,"gold":17927,"vision":15,"role":"JUNGLE","kda":"13/8/12","win":false,"items":[4633,3157,3143,3111,6653,2510,3364],"matchId":"EUW1_7700819510","champion":"Diana"},{"mode":"CLASSIC","date":1769300815725,"duration":1258,"cs":164,"gold":8105,"vision":7,"role":"JUNGLE","kda":"5/0/2","win":true,"items":[2510,1082,3020,4645,3364],"matchId":"EUW1_7700525025","champion":"Ekko"},{"mode":"CLASSIC","date":1769284932418,"duration":1894,"cs":272,"gold":16401,"vision":23,"role":"JUNGLE","kda":"8/6/10","win":true,"items":[4633,3041,2510,3111,8020,6653,3364],"matchId":"EUW1_7700049230","champion":"Diana"}]" }
-[TOOL_EXECUTION_RESULT]: ToolExecutionResultMessage { id = "JtIGeO2b0" toolName = "getRankInfoString" text = "Rang SoloQ: PLATINUM II (45 LP) - Winrate: 7W/5L" }
-[TOOL_EXECUTION_RESULT]: ToolExecutionResultMessage { id = "suIYcGsSU" toolName = "getRankInfoString" text = "Rang SoloQ: EMERALD III (38 LP) - Winrate: 37W/37L" }
-[AI]: AiMessage { text = "---
-### **Comparaison @nlng40 vs @fdckronos**
-
-#### **📊 Rang SoloQ (31/01/2026)**
-- **@nlng40** : **Platine II** (45 LP) | 7W/5L (58% WR)
-- **@fdckronos** : **Émeraude III** (38 LP) | 37W/37L (50% WR)
-
----
-
-#### **📈 Dernières Performances (10 games)**
-**@nlng40** *(Mid - Qiyana/Akali/Azir)*
-- **6W/4L** (60% WR)
-- **KDA Moyen** : **9.4/5.1/5.1** | **CS/Moy** : ~200
-- **Highlights** :
-  - 12/2/7 sur Qiyana (game 1)
-  - 14/3/7 sur Qiyana (game 6)
-- **Faiblesses** : 2/7/0 sur Akali (game 3), 7/11/9 sur Azir (game 9).
-
-**@fdckronos** *(Jungle - Diana/Ekko/Garen)*
-- **5W/5L** (50% WR)
-- **KDA Moyen** : **8.2/7.5/7.8** | **CS/Moy** : ~230
-- **Highlights** :
-  - 13/6/5 sur Diana (game 2)
-  - 11/10/13 sur Diana (game 1)
-- **Faiblesses** : 1/8/0 sur Diana (game 6), 5/11/6 (game 3).
-
----
-
-#### **🔍 Style de Jeu**
-- **@nlng40** : **Assassin/Mage agressif** (Qiyana/Akali). Bon impact en early/mid, mais dépendant de son lane.
-- **@fdckronos** : **Jungler polyvalent** (Diana/Ekko). Bon en teamfight, mais parfois en difficulté sur les early games.
-
----
-#### **💡 Verdict**
-- **@nlng40** a un **meilleur winrate récent** et des performances plus dominantes, mais avec des jeux plus risqués.
-- **@fdckronos** est **plus stable** (50% WR) mais moins dominant individuellement. Son rang supérieur (Émeraude) reflète une meilleure constance sur le long terme.
-
-**→ @nlng40** a un **meilleur peak récent**, mais **@fdckronos** est plus régulier. 🎯", thinking = null, toolExecutionRequests = [], attributes = {} }
+Tu dois aussi écrire une phrase courte (max 15 mots) et incisive (taquine ou élogieuse) pour résumer leur performance.
+IMPORTANT : Tu dois répondre UNIQUEMENT avec un JSON valide respectant STRICTEMENT ce format :
+[
+  {
+    "name": "Pseudo#TAG",
+    "champion": "NomChampion",
+    "role": "TOP" (ou JUNGLE, MIDDLE, BOTTOM, UTILITY),
+    "team": 100 (Blue) ou 200 (Red),
+    "score": 85,
+    "kda": "10/2/5",
+    "comment": "A carry la game tout seul !"
+  },
+  ... (pour les 10 joueurs)
+]
+Ne mets aucun texte avant ou après le JSON.
+AJOUT OBLIGATOIRE : Ajoute le champ "win": true/false pour chaque joueur." }
+[USER]: UserMessage { name = null, contents = [TextContent { text = "Voici les données du match :
+{"metadata":{"mode":"CLASSIC","type":"MATCHED_GAME","version":"16.2.741.3171","duration_sec":1770,"matchId":"EUW1_7710210782"},"timeline_events":[{"victim":"Nocturne","time":4,"killer":"Varus","type":"KILL"},{"victim":"Pantheon","time":4,"killer":"Ezreal","type":"KILL"},{"victim":"Zac","time":4,"killer":"Zed","type":"KILL"},{"victim":"Varus","time":4,"killer":"Ezreal","type":"KILL"},{"victim":"Zed","time":4,"killer":"Ryze","type":"KILL"},{"victim":"Zac","time":5,"killer":"Zed","type":"KILL"},{"victim":"Pantheon","time":6,"killer":"Bard","type":"KILL"},{"victim":"Varus","time":7,"killer":"Ezreal","type":"KILL"},{"victim":"Ryze","time":8,"killer":"Zed","type":"KILL"},{"killer_team":"ENEMY","subtype":"AIR_DRAGON","time":8,"type":"OBJECTIVE","monster":"DRAGON"},{"victim":"Nocturne","time":9,"killer":"Varus","type":"KILL"},{"victim":"Zac","time":9,"killer":"Ezreal","type":"KILL"},{"victim":"Garen","time":10,"killer":"Gwen","type":"KILL"},{"killer_team":"ALLY","time":11,"type":"OBJECTIVE","monster":"HORDE"},{"killer_team":"ALLY","time":11,"type":"OBJECTIVE","monster":"HORDE"},{"killer_team":"ALLY","time":11,"type":"OBJECTIVE","monster":"HORDE"},{"victim":"Garen","time":12,"killer":"Nocturne","type":"KILL"},{"victim":"Ryze","time":12,"killer":"Zed","type":"KILL"},{"victim":"Pantheon","time":12,"killer":"Bard","type":"KILL"},{"victim":"Zac","time":12,"killer":"Nocturne","type":"KILL"},{"victim":"Garen","time":14,"killer":"Gwen","type":"KILL"},{"victim":"Pantheon","time":14,"killer":"Ezreal","type":"KILL"},{"victim":"Ryze","time":14,"killer":"Zed","type":"KILL"},{"victim":"Ezreal","time":14,"killer":"Varus","type":"KILL"},{"killer_team":"ENEMY","subtype":"HEXTECH_DRAGON","time":14,"type":"OBJECTIVE","monster":"DRAGON"},{"victim":"Gwen","time":15,"killer":"Garen","type":"KILL"},{"victim":"Nocturne","time":15,"killer":"Pantheon","type":"KILL"},{"victim":"Bard","time":15,"killer":"Pantheon","type":"KILL"},{"victim":"Pantheon","time":15,"killer":"Bard","type":"KILL"},{"victim":"Varus","time":15,"killer":"Zed","type":"KILL"},{"killer_team":"ENEMY","time":15,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"BOT_LANE"},{"killer_team":"ENEMY","time":16,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"TOP_LANE"},{"victim":"Varus","time":16,"killer":"Zed","type":"KILL"},{"victim":"Pantheon","time":16,"killer":"Zed","type":"KILL"},{"killer_team":"ENEMY","time":17,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"MID_LANE"},{"killer_team":"ALLY","time":17,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"BOT_LANE"},{"killer_team":"ENEMY","time":17,"type":"OBJECTIVE","monster":"RIFTHERALD"},{"victim":"Ezreal","time":17,"killer":"Varus","type":"KILL"},{"victim":"Ryze","time":17,"killer":"Zed","type":"KILL"},{"victim":"Varus","time":18,"killer":"Nocturne","type":"KILL"},{"victim":"Zac","time":18,"killer":"Ezreal","type":"KILL"},{"victim":"Ezreal","time":19,"killer":"Pantheon","type":"KILL"},{"victim":"Varus","time":19,"killer":"Bard","type":"KILL"},{"victim":"Bard","time":19,"killer":"Garen","type":"KILL"},{"victim":"Ryze","time":19,"killer":"Zed","type":"KILL"},{"victim":"Pantheon","time":19,"killer":"Zed","type":"KILL"},{"killer_team":"ENEMY","subtype":"EARTH_DRAGON","time":20,"type":"OBJECTIVE","monster":"DRAGON"},{"victim":"Ezreal","time":20,"killer":"Pantheon","type":"KILL"},{"victim":"Garen","time":20,"killer":"Bard","type":"KILL"},{"victim":"Pantheon","time":21,"killer":"Zed","type":"KILL"},{"victim":"Zac","time":21,"killer":"Gwen","type":"KILL"},{"victim":"Ryze","time":21,"killer":"Gwen","type":"KILL"},{"victim":"Nocturne","time":21,"killer":"Garen","type":"KILL"},{"victim":"Zac","time":22,"killer":"Zed","type":"KILL"},{"killer_team":"ENEMY","time":22,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"TOP_LANE"},{"victim":"Ryze","time":23,"killer":"Ezreal","type":"KILL"},{"victim":"Varus","time":23,"killer":"Zed","type":"KILL"},{"victim":"Garen","time":23,"killer":"Ezreal","type":"KILL"},{"victim":"Nocturne","time":23,"killer":"Garen","type":"KILL"},{"victim":"Pantheon","time":23,"killer":"Bard","type":"KILL"},{"victim":"Zac","time":23,"killer":"Ezreal","type":"KILL"},{"killer_team":"ENEMY","time":23,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"MID_LANE"},{"victim":"Bard","time":24,"killer":"Ryze","type":"KILL"},{"killer_team":"ENEMY","time":24,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"BOT_LANE"},{"victim":"Ryze","time":24,"killer":"Ezreal","type":"KILL"},{"killer_team":"ALLY","time":24,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"TOP_LANE"},{"victim":"Varus","time":25,"killer":"Nocturne","type":"KILL"},{"victim":"Pantheon","time":25,"killer":"Zed","type":"KILL"},{"victim":"Zac","time":25,"killer":"Gwen","type":"KILL"},{"victim":"Ryze","time":25,"killer":"Nocturne","type":"KILL"},{"victim":"Garen","time":25,"killer":"Bard","type":"KILL"},{"killer_team":"ENEMY","time":25,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"BOT_LANE"},{"killer_team":"ENEMY","subtype":"EARTH_DRAGON","time":25,"type":"OBJECTIVE","monster":"DRAGON"},{"victim":"Bard","time":26,"killer":"Pantheon","type":"KILL"},{"victim":"Zed","time":26,"killer":"Ryze","type":"KILL"},{"victim":"Nocturne","time":26,"killer":"Pantheon","type":"KILL"},{"victim":"Ezreal","time":26,"killer":"Varus","type":"KILL"},{"victim":"Zac","time":27,"killer":"Gwen","type":"KILL"},{"victim":"Ryze","time":27,"killer":"Gwen","type":"KILL"},{"victim":"Gwen","time":27,"killer":"Garen","type":"KILL"},{"killer_team":"ALLY","time":27,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"MID_LANE"},{"victim":"Bard","time":28,"killer":"Pantheon","type":"KILL"},{"victim":"Varus","time":28,"killer":"Nocturne","type":"KILL"},{"victim":"Zac","time":28,"killer":"Ezreal","type":"KILL"},{"victim":"Zed","time":28,"killer":"Garen","type":"KILL"},{"victim":"Pantheon","time":28,"killer":"Ezreal","type":"KILL"},{"killer_team":"ENEMY","time":28,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"MID_LANE"},{"killer_team":"ENEMY","time":29,"type":"STRUCTURE","building":"INHIBITOR_BUILDING","lane":"MID_LANE"},{"victim":"Ryze","time":29,"killer":"Gwen","type":"KILL"},{"victim":"Gwen","time":29,"killer":"Garen","type":"KILL"},{"victim":"Zac","time":29,"killer":"Bard","type":"KILL"},{"victim":"Garen","time":29,"killer":"Ezreal","type":"KILL"},{"victim":"Pantheon","time":29,"killer":"Bard","type":"KILL"},{"victim":"Varus","time":29,"killer":"Ezreal","type":"KILL"},{"killer_team":"ENEMY","time":29,"type":"STRUCTURE","building":"INHIBITOR_BUILDING","lane":"BOT_LANE"},{"killer_team":"ENEMY","time":29,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"MID_LANE"},{"killer_team":"ENEMY","time":29,"type":"STRUCTURE","building":"TOWER_BUILDING","lane":"MID_LANE"}],"teams":{"red":{"bans":[555,54,131,24,234],"objectives":{"baron":0,"horde":0,"dragon":4,"riftHerald":1,"tower":10},"win":true},"blue":{"bans":[119,7,79,143,141],"objectives":{"baron":0,"horde":3,"dragon":0,"riftHerald":0,"tower":3},"win":false}},"target_player":{"role":"MIDDLE","final_items":[1058,3157,3040,3174,6657,3363],"rune_primary_tree_name":"Sorcellerie","wards_placed":7,"advanced":{"skillshots_dodged":51,"kp_percent":0.4090909090909091,"gold_per_min":414.65070493004987,"solo_kills":1,"turret_plates":6,"dmg_percent":0.19280419287630898,"lane_minions_first_10_min":84},"control_wards":0,"dmg_dealt":22902,"gold":12235,"rune_keystone_name":"Rush phasique","rune_secondary_tree_name":"Inspiration","rune_secondary_tree":8300,"vision_score":11,"jungle_enemy":0,"jungle_ally":2,"spells":[6,4],"win":false,"a":6,"build_path":[{"itemId":1056,"itemName":"Anneau de Doran","time":1},{"itemId":2003,"itemName":"Potion de soin","time":1},{"itemId":2003,"itemName":"Potion de soin","time":1},{"itemId":3070,"itemName":"Larme de la déesse","time":4},{"itemId":1028,"itemName":"Cristal de rubis","time":4},{"itemId":2031,"itemName":"Potion rechargeable","time":4},{"itemId":1026,"itemName":"Baguette explosive","time":7},{"itemId":3803,"itemName":"Catalyseur de l'éternité","time":10},{"itemId":1001,"itemName":"Bottes","time":10},{"itemId":6657,"itemName":"Bâton séculaire","time":12},{"itemId":6657,"itemName":"Bâton séculaire","time":12},{"itemId":1029,"itemName":"Armure d'étoffe","time":12},{"itemId":3047,"itemName":"Coques en acier","time":14},{"itemId":3802,"itemName":"Chapitre perdu","time":18},{"itemId":3363,"itemName":"Altération divinatoire","time":20},{"itemId":3003,"itemName":"Bâton de l'archange","time":21},{"itemId":1052,"itemName":"Tome d'amplification","time":22},{"itemId":2420,"itemName":"Protège-bras du savant","time":24},{"itemId":3157,"itemName":"Sablier de Zhonya","time":27},{"itemId":1058,"itemName":"Baguette trop grosse","time":27}],"d":11,"k":3,"dmg_taken":38757,"rune_primary_tree":8200,"skill_order":["W","E","Q","Q","Q","R","Q","E","Q","E","R","E","E","W","W","R"],"rune_keystone":8230,"cs":204,"name":"RUSHCIEL","kda_str":"3/11/6","champion":"Ryze","final_items_names":["Baguette trop grosse","Sablier de Zhonya","Étreinte du séraphin","Avancée blindée","Bâton séculaire","Altération divinatoire"]},"enemies":[{"role":"TOP","final_items":[1056,4633,3020,1082,2510,4645,3340],"rune_primary_tree_name":"Précision","wards_placed":12,"advanced":{"skillshots_dodged":19,"kp_percent":0.3076923076923077,"gold_per_min":445.5504267516748,"solo_kills":1,"turret_plates":15,"dmg_percent":0.21274724528489897,"lane_minions_first_10_min":69},"control_wards":0,"dmg_dealt":32993,"gold":13147,"rune_keystone_name":"Conquérant","rune_secondary_tree_name":"Sorcellerie","rune_secondary_tree":8200,"vision_score":23,"jungle_enemy":10,"jungle_ally":0,"spells":[4,14],"win":true,"a":8,"d":3,"k":8,"dmg_taken":33938,"rune_primary_tree":8000,"rune_keystone":8010,"cs":224,"name":"otakunabochan","kda_str":"8/3/8","champion":"Gwen","final_items_names":["Anneau de Doran","Créateur de failles","Chaussures de sorcier","Sceau noir","Aube et crépuscule","Flamme-ombre","Balise camouflée"]},{"role":"JUNGLE","final_items":[3158,2055,6631,6333,3073,3364],"rune_primary_tree_name":"Précision","wards_placed":6,"advanced":{"skillshots_dodged":84,"kp_percent":0.4423076923076923,"gold_per_min":445.98625965033995,"solo_kills":2,"turret_plates":4,"dmg_percent":0.14215835168945273,"lane_minions_first_10_min":9},"control_wards":4,"dmg_dealt":22046,"gold":13159,"rune_keystone_name":"Conquérant","rune_secondary_tree_name":"Domination","rune_secondary_tree":8100,"vision_score":36,"jungle_enemy":30,"jungle_ally":108,"spells":[11,4],"win":true,"a":17,"d":6,"k":6,"dmg_taken":38240,"rune_primary_tree":8000,"rune_keystone":8010,"cs":225,"name":"Korstog","kda_str":"6/6/17","champion":"Nocturne","final_items_names":["Bottes de lucidité","Balise de contrôle","Estropieur","Danse de la mort","Hexplaque expérimentale","Brouilleur oraculaire"]},{"role":"MIDDLE","final_items":[1054,6692,3171,6699,3071,6696,3364],"rune_primary_tree_name":"Précision","wards_placed":2,"advanced":{"skillshots_dodged":58,"kp_percent":0.5192307692307693,"gold_per_min":488.02948967126883,"solo_kills":6,"turret_plates":11,"dmg_percent":0.21451719575303574,"lane_minions_first_10_min":62},"control_wards":0,"dmg_dealt":33267,"gold":14400,"rune_keystone_name":"Conquérant","rune_secondary_tree_name":"Sorcellerie","rune_secondary_tree":8200,"vision_score":16,"jungle_enemy":4,"jungle_ally":0,"spells":[4,14],"win":true,"a":12,"d":3,"k":15,"dmg_taken":28061,"rune_primary_tree":8000,"rune_keystone":8010,"cs":181,"name":"MrScimmia","kda_str":"15/3/12","champion":"Zed","final_items_names":["Bouclier de Doran","Éclipse","Lucidité pourpre","Cyclosabre voltaïque","Couperet noir","Arc axiomatique","Brouilleur oraculaire"]},{"role":"BOTTOM","final_items":[1055,3078,3042,6694,2021,1037,3363],"rune_primary_tree_name":"Précision","wards_placed":2,"advanced":{"skillshots_dodged":185,"kp_percent":0.5384615384615384,"gold_per_min":552.6190382975823,"solo_kills":1,"turret_plates":14,"dmg_percent":0.249219524360414,"lane_minions_first_10_min":75},"control_wards":0,"dmg_dealt":38649,"gold":16306,"rune_keystone_name":"Tempo mortel","rune_secondary_tree_name":"Inspiration","rune_secondary_tree":8300,"vision_score":4,"jungle_enemy":6,"jungle_ally":0,"spells":[4,21],"win":true,"a":14,"d":5,"k":14,"dmg_taken":28950,"rune_primary_tree":8000,"rune_keystone":8008,"cs":229,"name":"GOD COMPLEX AHAH","kda_str":"14/5/14","champion":"Ezreal","final_items_names":["Lame de Doran","Force de la trinité","Muramana","Rancune de Serylda","Foreuse","Pioche","Altération divinatoire"]},{"role":"UTILITY","final_items":[3742,6653,3877,3091,3009,1052,3364],"rune_primary_tree_name":"Domination","wards_placed":16,"advanced":{"skillshots_dodged":150,"kp_percent":0.5576923076923077,"gold_per_min":406.7514694462402,"solo_kills":1,"turret_plates":13,"dmg_percent":0.18135768291219861,"lane_minions_first_10_min":13},"control_wards":0,"dmg_dealt":28125,"gold":12002,"rune_keystone_name":"Électrocution","rune_secondary_tree_name":"Sorcellerie","rune_secondary_tree":8200,"vision_score":44,"jungle_enemy":0,"jungle_ally":0,"spells":[4,14],"win":true,"a":20,"d":5,"k":9,"dmg_taken":23857,"rune_primary_tree":8100,"rune_keystone":8112,"cs":33,"name":"FLEXXO","kda_str":"9/5/20","champion":"Bard","final_items_names":["Plaque du mort","Tourment de Liandry","Mélodie du sang","Au bout du rouleau","Bottes de célérité","Tome d'amplification","Brouilleur oraculaire"]}],"allies":[{"role":"TOP","final_items":[3006,6631,3046,3161,3053,3364],"rune_primary_tree_name":"Sorcellerie","wards_placed":7,"advanced":{"skillshots_dodged":85,"kp_percent":0.45454545454545453,"gold_per_min":469.1090333722063,"solo_kills":1,"turret_plates":6,"dmg_percent":0.24742817096826852,"lane_minions_first_10_min":69},"control_wards":0,"dmg_dealt":29391,"gold":13842,"rune_keystone_name":"Rush phasique","rune_secondary_tree_name":"Volonté","rune_secondary_tree":8400,"vision_score":17,"jungle_enemy":0,"jungle_ally":0,"spells":[14,4],"win":false,"a":3,"d":7,"k":7,"dmg_taken":37414,"rune_primary_tree":8200,"rune_keystone":8230,"cs":238,"name":"BlindBambi","kda_str":"7/7/3","champion":"Garen","final_items_names":["Jambières du berzerker","Estropieur","Danseur fantôme","Lance de Shojin","Gage de Sterak","Brouilleur oraculaire"]},{"role":"JUNGLE","final_items":[3211,3068,3075,1082,3047,1028,3364],"rune_primary_tree_name":"Volonté","wards_placed":9,"advanced":{"skillshots_dodged":66,"kp_percent":0.6818181818181818,"gold_per_min":333.3499150919692,"solo_kills":0,"turret_plates":0,"dmg_percent":0.19027542634008052,"lane_minions_first_10_min":6},"control_wards":8,"dmg_dealt":22602,"gold":9836,"rune_keystone_name":"Après-coup","rune_secondary_tree_name":"Précision","rune_secondary_tree":8000,"vision_score":34,"jungle_enemy":4,"jungle_ally":96,"spells":[11,4],"win":false,"a":15,"d":12,"k":0,"dmg_taken":44479,"rune_primary_tree":8400,"rune_keystone":8439,"cs":156,"name":"SaucisseHerta2","kda_str":"0/12/15","champion":"Zac","final_items_names":["Manteau de spectre","Égide solaire","Cotte épineuse","Sceau noir","Coques en acier","Cristal de rubis","Brouilleur oraculaire"]},{"role":"BOTTOM","final_items":[3142,3042,3814,3026,1055,3363],"rune_primary_tree_name":"Sorcellerie","wards_placed":11,"advanced":{"skillshots_dodged":43,"kp_percent":0.5909090909090909,"gold_per_min":452.75664523358245,"solo_kills":0,"turret_plates":3,"dmg_percent":0.20704219289288286,"lane_minions_first_10_min":60},"control_wards":0,"dmg_dealt":24593,"gold":13359,"rune_keystone_name":"Comète arcanique","rune_secondary_tree_name":"Inspiration","rune_secondary_tree":8300,"vision_score":16,"jungle_enemy":0,"jungle_ally":0,"spells":[21,4],"win":false,"a":8,"d":10,"k":5,"dmg_taken":26222,"rune_primary_tree":8200,"rune_keystone":8229,"cs":185,"name":"Vulkan XVIIIth","kda_str":"5/10/8","champion":"Varus","final_items_names":["Lame spectre de Youmuu","Muramana","Manteau de la nuit","Ange gardien","Lame de Doran","Altération divinatoire"]},{"role":"UTILITY","final_items":[3877,3179,3047,6692,3071,3364],"rune_primary_tree_name":"Précision","wards_placed":16,"advanced":{"skillshots_dodged":52,"kp_percent":0.7272727272727273,"gold_per_min":367.1383991880937,"solo_kills":0,"turret_plates":1,"dmg_percent":0.16245001692245908,"lane_minions_first_10_min":14},"control_wards":5,"dmg_dealt":19296,"gold":10833,"rune_keystone_name":"Attaque soutenue","rune_secondary_tree_name":"Domination","rune_secondary_tree":8100,"vision_score":31,"jungle_enemy":0,"jungle_ally":0,"spells":[4,14],"win":false,"a":9,"d":12,"k":7,"dmg_taken":29336,"rune_primary_tree":8000,"rune_keystone":8005,"cs":49,"name":"SolbadguyArcane","kda_str":"7/12/9","champion":"Pantheon","final_items_names":["Mélodie du sang","Glaive d'ombre","Coques en acier","Éclipse","Couperet noir","Brouilleur oraculaire"]}]}" }], attributes = {} }
+[AI]: AiMessage { text = "```json
+[
+  {
+    "name": "otakunabochan",
+    "champion": "Gwen",
+    "role": "TOP",
+    "team": 200,
+    "score": 92,
+    "kda": "8/3/8",
+    "win": true,
+    "comment": "Splitpush monstrueux, 15 plaques détruites !"
+  },
+  {
+    "name": "Korstog",
+    "champion": "Nocturne",
+    "role": "JUNGLE",
+    "team": 200,
+    "score": 88,
+    "kda": "6/6/17",
+    "win": true,
+    "comment": "KP de folie, a étouffé la jungle ennemie !"
+  },
+  {
+    "name": "MrScimmia",
+    "champion": "Zed",
+    "role": "MIDDLE",
+    "team": 200,
+    "score": 98,
+    "kda": "15/3/12",
+    "win": true,
+    "comment": "1v9 absolu, a carry comme un dieu !"
+  },
+  {
+    "name": "GOD COMPLEX AHAH",
+    "champion": "Ezreal",
+    "role": "BOTTOM",
+    "team": 200,
+    "score": 95,
+    "kda": "14/5/14",
+    "win": true,
+    "comment": "DPM de malade, a tout cassé en late !"
+  },
+  {
+    "name": "FLEXXO",
+    "champion": "Bard",
+    "role": "UTILITY",
+    "team": 200,
+    "score": 85,
+    "kda": "9/5/20",
+    "win": true,
+    "comment": "KP énorme, a sauvé son équipe mille fois !"
+  },
+  {
+    "name": "RUSHCIEL",
+    "champion": "Ryze",
+    "role": "MIDDLE",
+    "team": 100,
+    "score": 30,
+    "kda": "3/11/6",
+    "win": false,
+    "comment": "Noyé dans la pression, 0 impact réel !"
+  },
+  {
+    "name": "BlindBambi",
+    "champion": "Garen",
+    "role": "TOP",
+    "team": 100,
+    "score": 55,
+    "kda": "7/7/3",
+    "win": false,
+    "comment": "A tenu bon mais sans splitpush utile !"
+  },
+  {
+    "name": "SaucisseHerta2",
+    "champion": "Zac",
+    "role": "JUNGLE",
+    "team": 100,
+    "score": 40,
+    "kda": "0/12/15",
+    "win": false,
+    "comment": "A farm sans impact, 0 ganks réussis !"
+  },
+  {
+    "name": "Vulkan XVIIIth",
+    "champion": "Varus",
+    "role": "BOTTOM",
+    "team": 100,
+    "score": 45,
+    "kda": "5/10/8",
+    "win": false,
+    "comment": "A subi, 0 carry en late game !"
+  },
+  {
+    "name": "SolbadguyArcane",
+    "champion": "Pantheon",
+    "role": "UTILITY",
+    "team": 100,
+    "score": 35,
+    "kda": "7/12/9",
+    "win": false,
+    "comment": "Vision moyenne, 0 plays décisives !"
+  }
+]
+```", thinking = null, toolExecutionRequests = [], attributes = {} }
 =====================================================
 
 
