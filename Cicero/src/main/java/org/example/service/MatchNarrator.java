@@ -40,7 +40,7 @@ public class MatchNarrator {
         // Détection de pattern : "Le Riche Inutile" ou "Le Pauvre Utile"
         if (ctx.goldPerMinute > 450 && ctx.teamDamagePercentage < 0.18) {
             digest.append("- Pattern détecté: [VAMPIRISATION] Gros revenus mais impact combat très faible.\n");
-        } else if (ctx.goldPerMinute < 350 && ctx.killParticipation > 0.50) {
+        } else if (ctx.goldPerMinute < 350 && ctx.killParticipation > 0.50 && !role.equals("UTILITY") && !role.equals("SUPPORT") && !role.equals("SUP")) {
             digest.append("- Pattern détecté: [WEAKSIDE HERO] Très peu de ressources mais impact map majeur.\n");
         }
 
@@ -50,8 +50,8 @@ public class MatchNarrator {
         if (ctx.earlyRoamTakedowns > 0) digest.append("- Roaming: ").append(ctx.earlyRoamTakedowns).append(" décalages gagnants en early.\n");
         if (ctx.voidGrubsKills > 0) digest.append("- Objectifs: A sécurisé ").append(ctx.voidGrubsKills).append(" Larves du Néant.\n");
         if (ctx.dragonTakedowns > 0) digest.append("- Objectifs: A sécurisé ").append(ctx.dragonTakedowns).append(" dragons.\n");
-        if (ctx.baronTakedowns > 0) digest.append("- Objectifs: A sécurisé ").append(ctx.voidGrubsKills).append(" Heraut de la Faille.\n");
-        if (ctx.heraldTakedowns > 0) digest.append("- Objectifs: A sécurisé ").append(ctx.voidGrubsKills).append(" Baron Nashor.\n");
+        if (ctx.baronTakedowns > 0) digest.append("- Objectifs: A sécurisé ").append(ctx.baronTakedowns).append(" Heraut de la Faille.\n");
+        if (ctx.heraldTakedowns > 0) digest.append("- Objectifs: A sécurisé ").append(ctx.heraldTakedowns).append(" Baron Nashor.\n");
         if (ctx.epicMonsterSteals > 0) digest.append("- CLUTCH: A volé ").append(ctx.epicMonsterSteals).append(" objectif(s) majeur(s) !\n");
         if (ctx.saveAllyFromDeath > 0) digest.append("- Sauvetages: A sauvé ").append(ctx.saveAllyFromDeath).append(" alliés d'une mort certaine.\n");
 
