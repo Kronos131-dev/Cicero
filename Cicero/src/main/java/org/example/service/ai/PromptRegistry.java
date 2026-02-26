@@ -18,22 +18,21 @@ public class PromptRegistry {
                     "1. 'ai_context' : Les notes brutes des 4 piliers (LANE, COMBAT, MACRO, SURVIE).\n" +
                     "2. 'factual_digest' : Un résumé narratif des actions clés (Throws, Sacrifices).\n\n" +
 
-                    "### 🎯 TA MISSION\n" +
-                    "Tu dois lire le 'factual_digest' de chaque joueur et AJUSTER le 'math_score' pour obtenir le score final (adjusted_score). La note classique est sur 100, mais elle peut exceptionnellement monter jusqu'à 200.\n\n" +
+                    "### 🎯 TA MISSION ET LE RÉFÉRENTIEL DE NOTATION (CRITIQUE)\n" +
+                    "Tu dois lire le 'factual_digest' et AJUSTER le 'math_score' pour obtenir le score final (adjusted_score).\n" +
+                    "Voici l'échelle de notation ABSOLUE que tu dois respecter :\n" +
+                    "- 30 à 45 : Joueur ayant plombé la partie.\n" +
+                    "- 45 à 55 : Joueur MOYEN. A fait son travail, ni plus ni moins.\n" +
+                    "- 60 à 75 : Très bonne partie, impact fort.\n" +
+                    "- 80 à 90 : Le MVP incontestable. Une domination rare.\n" +
+                    "- 95 à 100 : La perfection absolue. N'arrive quasiment jamais.\n\n" +
+                    "ATTENTION : Le score MAXIMUM est STRICTEMENT 100. Tu ne peux pas donner plus de 100.\n\n" +
 
-                    "### 💎 ÉCHELLE D'AJUSTEMENT (DELTA) ET GOD MODE\n" +
-                    "- +/- 0 à 3 pts : Ajustement de précision.\n" +
-                    "- +/- 5 à 9 pts : Correction forte.\n" +
-                    "- +/- 10 à 20 pts : Désaveu de l'algo.\n" +
-                    "- 🌟 LE GOD MODE (> 100 jusqu'à 200) : Réservé à l'élite absolue (1 partie sur 20 max). C'est la perfection totale, une omniprésence macro et micro, un véritable 1v9.\n\n" +
-
-                    "### 🎭 RÈGLES DE JUGEMENT PAR CLASSE\n" +
-                    "- TANK : Doit encaisser et CC. Dégâts faibles = normal.\n" +
-                    "- ENCHANTER : Doit sauver et assister. Kills à 0 = normal.\n" +
-                    "- ASSASSIN : Pression de kill. Farm = secondaire.\n" +
-                    "- COMBATTANT : Présence, duels, objectifs. Les morts en splitpush sont parfois rentables.\n" +
-                    "- COMBATTANT ECLAIR (ou scaling) : Doit prendre un maximum de ressources et ettouffer son adverses pour ensuite retranscrire ses gols en degats et carry dans les teamfights.\n"+
-                    "- MAGE / ADC : Dégâts par minute (DPM) et placement.\n\n" +
+                    "### 💎 ÉCHELLE D'AJUSTEMENT (DELTA MAXIMUM)\n" +
+                    "Ton rôle n'est PAS de gonfler les notes, mais de rattraper les erreurs de l'algorithme (ex: un support qui a 30 alors qu'il a sauvé la game).\n" +
+                    "- +/- 0 à 3 pts : Ajustement de précision mineur.\n" +
+                    "- +/- 4 à 8 pts : Correction forte (ex: sacrifice utile, ou stats gonflées sans impact).\n" +
+                    "- +/- 10 à 15 pts MAXIMUM : Désaveu total de l'algo (ex: Support parfait noté 40 par erreur).\n\n" +
 
                     "### 📝 FORMAT DE SORTIE EXIGÉ (JSON STRICT)\n" +
                     "Tu dois retourner un JSON valide avec une racine `adjustments` contenant EXACTEMENT 10 objets. Les clés doivent être EXACTEMENT celles-ci :\n" +
@@ -42,12 +41,12 @@ public class PromptRegistry {
                     "    {\n" +
                     "      \"champion\": \"YONE\",\n" +
                     "      \"role\": \"TOP\",\n" +
-                    "      \"math_score\": 98,\n" +
-                    "      \"timeline_audit\": \"A solocarry la game avec 3 inhibiteurs et 2 pentakills.\",\n" +
-                    "      \"stat_padding_check\": \"KDA légitime, impact colossal.\",\n" +
-                    "      \"external_context_used\": \"Splitpusher intuable ayant créé un espace infini.\",\n" +
-                    "      \"adjusted_score\": 135,\n" +
-                    "      \"analyst_reasoning\": \"+37 pts (GOD MODE). L'algorithme plafonnait sa note, mais c'est l'une des meilleures performances possibles.\"\n" +
+                    "      \"math_score\": 65,\n" +
+                    "      \"timeline_audit\": \"A beaucoup farmé mais peu d'impact en teamfight.\",\n" +
+                    "      \"stat_padding_check\": \"KDA gonflé par des kills tardifs sans enjeu.\",\n" +
+                    "      \"external_context_used\": \"Splitpusher n'ayant jamais rejoint les objectifs.\",\n" +
+                    "      \"adjusted_score\": 58,\n" +
+                    "      \"analyst_reasoning\": \"-7 pts. L'algo a vu ses golds, mais son impact réel est faible.\"\n" +
                     "    }\n" +
                     "  ]\n" +
                     "}\n\n" +

@@ -59,7 +59,10 @@ public class PerformanceCommand implements SlashCommand {
                 String matchJsonStr = ctx.riotService().getMatchAnalysis(lastMatchId, dbUser.puuid, dbUser.region);
                 JSONObject fullMatchData = new JSONObject(matchJsonStr);
 
-                Map<String, MatchDataExtractor.PlayerContext> globalContext = ctx.riotService().getMatchContext(lastMatchId, dbUser.region);
+                // CORRECTION ICI : Utilisation de FullContext
+                MatchDataExtractor.FullContext fullContext = ctx.riotService().getMatchContext(lastMatchId, dbUser.region);
+                Map<String, MatchDataExtractor.PlayerContext> globalContext = fullContext.players;
+                MatchDataExtractor.TeamCompositionProfile enemyComp = fullContext.redTeamComp; // Par défaut
 
                 RiotService.RankInfo rankInfo = ctx.riotService().getRank(dbUser.puuid, dbUser.region);
                 String gameTier = (rankInfo != null && rankInfo.tier != null) ? rankInfo.tier : "GOLD";
@@ -84,6 +87,9 @@ public class PerformanceCommand implements SlashCommand {
                     MatchDataExtractor.PlayerContext pCtx = globalContext.get(champName);
                     MatchDataExtractor.PlayerContext oppCtx = null;
                     if (pCtx != null) {
+                        // Détermination de l'équipe ennemie pour l'analyse contextuelle
+                        enemyComp = (pCtx.teamId == 100) ? fullContext.redTeamComp : fullContext.blueTeamComp;
+                        
                         for (MatchDataExtractor.PlayerContext other : globalContext.values()) {
                             if (other.teamId != pCtx.teamId && other.role.equals(pCtx.role)) {
                                 oppCtx = other; break;
@@ -94,7 +100,8 @@ public class PerformanceCommand implements SlashCommand {
                     String champClass = ScoreCalculator.getChampionClass(champName, role);
                     p.put("champion_class", champClass);
 
-                    JSONObject mathResult = ScoreCalculator.analyzePlayer(p, benchmarks, gameTier, durationMin, pCtx, oppCtx);
+                    // Appel avec la nouvelle signature
+                    JSONObject mathResult = ScoreCalculator.analyzePlayer(p, benchmarks, gameTier, durationMin, pCtx, oppCtx, enemyComp);
                     p.put("ai_context", mathResult);
                     p.put("score", mathResult.getInt("math_score"));
                     p.put("comment", "⏱️ *Analyse IA en cours...*");

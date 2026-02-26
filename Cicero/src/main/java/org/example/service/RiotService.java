@@ -581,7 +581,7 @@ public class RiotService {
         }
     }
 
-    public Map<String, MatchDataExtractor.PlayerContext> getMatchContext(String matchId, String region) {
+    public MatchDataExtractor.FullContext getMatchContext(String matchId, String region) {
         try {
             String continent = getMatchRegion(region);
             JSONObject matchInfo = executeRequest("https://" + continent + ".api.riotgames.com/lol/match/v5/matches/" + matchId);
@@ -589,7 +589,7 @@ public class RiotService {
             return MatchDataExtractor.extractAll(matchInfo, timeline);
         } catch (Exception e) {
             System.err.println("Erreur getMatchContext : " + e.getMessage());
-            return new HashMap<>();
+            return null;
         }
     }
 

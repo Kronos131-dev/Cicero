@@ -59,7 +59,11 @@ public class PerformanceTestCommand implements SlashCommand {
                     // 1. Données brutes et contexte causal (exactement comme PerformanceCommand)
                     String matchJsonStr = ctx.riotService().getMatchAnalysis(matchId, user.puuid, user.region);
                     JSONObject fullMatchData = new JSONObject(matchJsonStr);
-                    Map<String, MatchDataExtractor.PlayerContext> globalContext = ctx.riotService().getMatchContext(matchId, user.region);
+                    
+                    // CORRECTION ICI : On récupère le FullContext et on extrait la map des joueurs
+                    MatchDataExtractor.FullContext fullContext = ctx.riotService().getMatchContext(matchId, user.region);
+                    Map<String, MatchDataExtractor.PlayerContext> globalContext = fullContext.players;
+                    MatchDataExtractor.TeamCompositionProfile enemyComp = fullContext.redTeamComp; // Par défaut, on ajustera dans la boucle
 
                     RiotService.RankInfo rankInfo = ctx.riotService().getRank(user.puuid, user.region);
                     String gameTier = (rankInfo != null && rankInfo.tier != null) ? rankInfo.tier : "GOLD";
@@ -82,6 +86,9 @@ public class PerformanceTestCommand implements SlashCommand {
 
                         MatchDataExtractor.PlayerContext oppCtx = null;
                         if (pCtx != null) {
+                            // Détermination de l'équipe ennemie pour l'analyse contextuelle
+                            enemyComp = (pCtx.teamId == 100) ? fullContext.redTeamComp : fullContext.blueTeamComp;
+                            
                             for (MatchDataExtractor.PlayerContext other : globalContext.values()) {
                                 if (other.teamId != pCtx.teamId && other.role.equals(pCtx.role)) {
                                     oppCtx = other; break;
@@ -89,7 +96,8 @@ public class PerformanceTestCommand implements SlashCommand {
                             }
                         }
 
-                        JSONObject mathResult = ScoreCalculator.analyzePlayer(p, benchmarks, gameTier, durationMin, pCtx, oppCtx);
+                        // Appel avec la nouvelle signature (ajout de enemyComp)
+                        JSONObject mathResult = ScoreCalculator.analyzePlayer(p, benchmarks, gameTier, durationMin, pCtx, oppCtx, enemyComp);
                         p.put("ai_context", mathResult);
                         p.put("score", mathResult.getInt("math_score"));
                         p.put("comment", "Note Mathématique Pure");
@@ -97,8 +105,18 @@ public class PerformanceTestCommand implements SlashCommand {
 
                         // On log le détail dans le fichier TXT
                         globalAudit.append("  [").append(champName).append("] Score: ").append(p.getInt("score")).append("\n");
-                        JSONArray breakdown = mathResult.getJSONArray("score_breakdown");
-                        for(int j=0; j<breakdown.length(); j++) globalAudit.append("    > ").append(breakdown.getString(j)).append("\n");
+                        
+                        // Correction : ScoreCalculator renvoie "pillars" et "synergies", pas "score_breakdown"
+                        JSONArray pillars = mathResult.getJSONArray("pillars");
+                        for(int j=0; j<pillars.length(); j++) {
+                            JSONObject pillar = pillars.getJSONObject(j);
+                            globalAudit.append("    > ").append(pillar.getString("name")).append(": ").append(pillar.getInt("score")).append("\n");
+                        }
+                        JSONArray synergies = mathResult.getJSONArray("synergies");
+                        for(int j=0; j<synergies.length(); j++) {
+                            JSONObject syn = synergies.getJSONObject(j);
+                            globalAudit.append("    + ").append(syn.getString("reason")).append(" (").append(syn.getDouble("points")).append(")\n");
+                        }
                     }
                     globalAudit.append("\n");
 

@@ -10,6 +10,33 @@ import java.util.Map;
 
 public class MatchDataExtractor {
 
+    public static class TeamCompositionProfile {
+        public int tankCount = 0;
+        public int assassinCount = 0;
+        public int enchanterCount = 0;
+        public int mageCount = 0;
+        public int fighterCount = 0;
+        public int adcCount = 0;
+
+        // Scores de menace/style de 0.0 à 1.0
+        public double tankiness;
+        public double burstThreat;
+        public double pokeThreat;
+        public double engageHardness;
+    }
+
+    public static class FullContext {
+        public Map<String, PlayerContext> players;
+        public TeamCompositionProfile blueTeamComp;
+        public TeamCompositionProfile redTeamComp;
+
+        public FullContext(Map<String, PlayerContext> players, TeamCompositionProfile blueTeamComp, TeamCompositionProfile redTeamComp) {
+            this.players = players;
+            this.blueTeamComp = blueTeamComp;
+            this.redTeamComp = redTeamComp;
+        }
+    }
+
     public static class PlayerContext {
         public int participantId;
         public String championName;
@@ -62,6 +89,11 @@ public class MatchDataExtractor {
         public int sacrificialDeaths = 0;
         public int throwDeaths = 0;
 
+        // --- 🧠 8. INTELLIGENCE SÉQUENTIELLE (Nouveau) ---
+        public int clutchKills = 0;        // Kill -> Objectif
+        public int unforcedErrorDeaths = 0; // Mort -> Perte d'objectif
+        public int pickOffs = 0;            // Kill isolé
+
         // --- 📊 NOUVELLES STATS POUR LE BENCHMARK ---
         public int controlWardsPlaced;
         public int skillshotsDodged;
@@ -77,29 +109,59 @@ public class MatchDataExtractor {
         public boolean isHeavyLosingEarly = false;
     }
 
-    // Classe utilitaire pour mémoriser les morts récentes (Fenêtre de 60 secondes)
-    private static class DeathRecord {
+    // Classe interne pour représenter un événement de la timeline de manière riche
+    private static class TimelineEvent {
+        long timestamp;
+        String type; // CHAMPION_KILL, ELITE_MONSTER_KILL, BUILDING_KILL
+        int killerId;
         int victimId;
+        int teamId; // L'équipe qui a réalisé l'action (Killer Team)
+        List<Integer> assistingParticipantIds = new ArrayList<>();
+        
+        // Pour les kills
         int victimTeamId;
-        long timestampMs;
-        boolean isProcessed; // NOUVEAU : Empêche le double compte de la même mort
 
-        public DeathRecord(int victimId, int victimTeamId, long timestampMs) {
-            this.victimId = victimId;
-            this.victimTeamId = victimTeamId;
-            this.timestampMs = timestampMs;
-            this.isProcessed = false; // Initialisé à false par défaut
+        public TimelineEvent(long timestamp, String type, int killerId, int teamId) {
+            this.timestamp = timestamp;
+            this.type = type;
+            this.killerId = killerId;
+            this.teamId = teamId;
         }
+    }
+
+    private static TeamCompositionProfile createTeamProfile(List<PlayerContext> teamPlayers) {
+        TeamCompositionProfile profile = new TeamCompositionProfile();
+        for (PlayerContext p : teamPlayers) {
+            String champClass = ScoreCalculator.getChampionClass(p.championName, p.role);
+            switch (champClass) {
+                case ScoreCalculator.TANK -> profile.tankCount++;
+                case ScoreCalculator.ASSASSIN -> profile.assassinCount++;
+                case ScoreCalculator.ENCHANTER -> profile.enchanterCount++;
+                case ScoreCalculator.MAGE -> profile.mageCount++;
+                case ScoreCalculator.COMBATTANT, ScoreCalculator.COMBATTANT_ECLAIR -> profile.fighterCount++;
+                case ScoreCalculator.ADC -> profile.adcCount++;
+            }
+        }
+
+        // Logique simple pour calculer les scores de menace. Peut être affinée.
+        profile.tankiness = Math.min(1.0, (profile.tankCount * 0.4) + (profile.fighterCount * 0.15));
+        profile.burstThreat = Math.min(1.0, (profile.assassinCount * 0.5) + (profile.mageCount * 0.2) + (profile.fighterCount * 0.1));
+        profile.pokeThreat = Math.min(1.0, (profile.mageCount * 0.3) + (profile.adcCount * 0.2));
+        profile.engageHardness = Math.min(1.0, (profile.tankCount * 0.4) + (profile.assassinCount * 0.2) + (profile.fighterCount * 0.2));
+
+        return profile;
     }
 
     /**
      * Parcourt le match et la timeline UNE SEULE FOIS pour extraire les données causales.
      */
-    public static Map<String, PlayerContext> extractAll(JSONObject rawMatch, JSONObject rawTimeline) {
+    public static FullContext extractAll(JSONObject rawMatch, JSONObject rawTimeline) {
         Map<Integer, PlayerContext> byId = new HashMap<>();
         Map<String, PlayerContext> byChamp = new HashMap<>();
         Map<String, PlayerContext> blueTeamRoles = new HashMap<>();
         Map<String, PlayerContext> redTeamRoles = new HashMap<>();
+        List<PlayerContext> blueTeamPlayers = new ArrayList<>();
+        List<PlayerContext> redTeamPlayers = new ArrayList<>();
 
         try {
             // =================================================================
@@ -159,8 +221,13 @@ public class MatchDataExtractor {
                 byId.put(ctx.participantId, ctx);
                 byChamp.put(ctx.championName, ctx);
 
-                if (ctx.teamId == 100) blueTeamRoles.put(ctx.role, ctx);
-                else redTeamRoles.put(ctx.role, ctx);
+                if (ctx.teamId == 100) {
+                    blueTeamRoles.put(ctx.role, ctx);
+                    blueTeamPlayers.add(ctx);
+                } else {
+                    redTeamRoles.put(ctx.role, ctx);
+                    redTeamPlayers.add(ctx);
+                }
             }
 
             // =================================================================
@@ -169,14 +236,15 @@ public class MatchDataExtractor {
             if (rawTimeline != null && rawTimeline.has("info")) {
                 JSONArray frames = rawTimeline.getJSONObject("info").optJSONArray("frames");
                 if (frames != null) {
+                    List<TimelineEvent> allEvents = new ArrayList<>();
                     int blueEarlyKills = 0;
                     int redEarlyKills = 0;
-                    List<DeathRecord> recentDeaths = new ArrayList<>();
 
+                    // 1. Extraction de tous les événements importants
                     for (int i = 0; i < frames.length(); i++) {
                         JSONObject frame = frames.getJSONObject(i);
-
-                        // A. Extraction du Duel à la Frame 14 (Golds exacts)
+                        
+                        // A. Extraction du Duel à la Frame 14 (Golds exacts) - inchangé
                         if (i == 14 && frame.has("participantFrames")) {
                             JSONObject pFrames = frame.getJSONObject("participantFrames");
                             for (PlayerContext bluePlayer : blueTeamRoles.values()) {
@@ -194,94 +262,158 @@ public class MatchDataExtractor {
                             }
                         }
 
-                        // B. Analyse des Événements (Kills et Objectifs)
                         JSONArray events = frame.optJSONArray("events");
                         if (events != null) {
                             for (int e = 0; e < events.length(); e++) {
                                 JSONObject event = events.getJSONObject(e);
                                 String type = event.optString("type");
                                 long timestamp = event.optLong("timestamp");
-                                double minutes = timestamp / 60000.0;
-
-                                // --- 1. ENREGISTREMENT DES MORTS ---
+                                
                                 if ("CHAMPION_KILL".equals(type)) {
-                                    int victimId = event.optInt("victimId");
                                     int killerId = event.optInt("killerId");
-
-                                    PlayerContext victim = byId.get(victimId);
+                                    int victimId = event.optInt("victimId");
                                     PlayerContext killer = byId.get(killerId);
-
-                                    if (victim != null) {
-                                        // On sauvegarde la mort en mémoire (fenêtre de 60s)
-                                        recentDeaths.add(new DeathRecord(victimId, victim.teamId, timestamp));
-
-                                        // Kills avant 15 minutes (Dominance d'équipe)
-                                        if (minutes <= 15.0 && killer != null) {
+                                    PlayerContext victim = byId.get(victimId);
+                                    
+                                    if (killer != null && victim != null) {
+                                        TimelineEvent te = new TimelineEvent(timestamp, type, killerId, killer.teamId);
+                                        te.victimId = victimId;
+                                        te.victimTeamId = victim.teamId;
+                                        
+                                        JSONArray assists = event.optJSONArray("assistingParticipantIds");
+                                        if (assists != null) {
+                                            for(int a=0; a<assists.length(); a++) te.assistingParticipantIds.add(assists.getInt(a));
+                                        }
+                                        allEvents.add(te);
+                                        
+                                        // Logique existante (Roam, Early Deaths)
+                                        double minutes = timestamp / 60000.0;
+                                        
+                                        // Comptage des kills early pour HeavyLosingEarly
+                                        if (minutes <= 15.0) {
                                             if (killer.teamId == 100) blueEarlyKills++;
                                             else redEarlyKills++;
                                         }
 
-                                        // Micro-analyse de la mort
                                         if (minutes <= 14.0) {
-                                            JSONArray assists = event.optJSONArray("assistingParticipantIds");
-
-                                            // Traque des Roams du Support/Mid
-                                            if (assists != null) {
-                                                for (int a = 0; a < assists.length(); a++) {
-                                                    PlayerContext assistant = byId.get(assists.getInt(a));
-                                                    if (assistant != null && !assistant.role.equals(victim.role)) {
-                                                        if (assistant.role.equals("UTILITY") || assistant.role.equals("MIDDLE")) {
-                                                            assistant.earlyRoamTakedowns++;
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            // Est-ce un gank ou un solo kill ?
-                                            if (assists == null || assists.isEmpty()) {
+                                            if (te.assistingParticipantIds.isEmpty()) {
                                                 if (killerId != 0) victim.earlySoloDeaths++;
                                             } else {
                                                 victim.earlyGankDeaths++;
+                                            }
+                                            // Roam detection
+                                            for (int assistId : te.assistingParticipantIds) {
+                                                PlayerContext assistant = byId.get(assistId);
+                                                if (assistant != null && !assistant.role.equals(victim.role)) {
+                                                    if (assistant.role.equals("UTILITY") || assistant.role.equals("MIDDLE")) {
+                                                        assistant.earlyRoamTakedowns++;
+                                                    }
+                                                }
                                             }
                                         } else if (minutes >= 25.0) {
                                             victim.lateGameDeaths++;
                                         }
                                     }
-                                }
-
-                                // --- 2. DÉTECTION DES SACRIFICES ET DES THROWS ---
-                                else if ("ELITE_MONSTER_KILL".equals(type) ||
-                                        ("BUILDING_KILL".equals(type) && "INHIBITOR_BUILDING".equals(event.optString("buildingType")))) {
-
-                                    int killerTeamId = event.optInt("killerTeamId");
-                                    if (killerTeamId == 0 && byId.containsKey(event.optInt("killerId"))) {
-                                        killerTeamId = byId.get(event.optInt("killerId")).teamId;
+                                } else if ("ELITE_MONSTER_KILL".equals(type) || 
+                                          ("BUILDING_KILL".equals(type) && ("INHIBITOR_BUILDING".equals(event.optString("buildingType")) || "TOWER_BUILDING".equals(event.optString("buildingType"))))) {
+                                    
+                                    int killerId = event.optInt("killerId");
+                                    int killerTeamId = event.optInt("killerTeamId"); // Parfois présent
+                                    
+                                    if (killerTeamId == 0 && byId.containsKey(killerId)) {
+                                        killerTeamId = byId.get(killerId).teamId;
                                     }
-
+                                    
                                     if (killerTeamId == 100 || killerTeamId == 200) {
-                                        // On regarde les morts des 60 dernières secondes
-                                        for (DeathRecord d : recentDeaths) {
-                                            // NOUVEAU : On vérifie que la mort n'a pas déjà été comptée (!d.isProcessed)
-                                            if (!d.isProcessed && timestamp - d.timestampMs <= 60000 && timestamp >= d.timestampMs) {
-                                                PlayerContext deceasedPlayer = byId.get(d.victimId);
-                                                if (deceasedPlayer != null) {
-                                                    if (d.victimTeamId == killerTeamId) {
-                                                        deceasedPlayer.sacrificialDeaths++;
-                                                    } else {
-                                                        deceasedPlayer.throwDeaths++;
-                                                    }
-                                                    // On verrouille cette mort pour ne plus la recompter si un autre objectif tombe
-                                                    d.isProcessed = true;
-                                                }
-                                            }
-                                        }
+                                        TimelineEvent te = new TimelineEvent(timestamp, type, killerId, killerTeamId);
+                                        allEvents.add(te);
                                     }
                                 }
                             }
                         }
                     }
+                    
+                    // 2. ANALYSE SÉQUENTIELLE (Le Cerveau)
+                    
+                    for (int i = 0; i < allEvents.size(); i++) {
+                        TimelineEvent current = allEvents.get(i);
+                        
+                        if ("CHAMPION_KILL".equals(current.type)) {
+                            boolean objectiveTakenAfter = false;
+                            boolean objectiveLostAfter = false;
+                            
+                            // Calcul dynamique de la fenêtre de temps (Death Timer approximatif)
+                            // Early game (~15s) -> Late game (~60-70s)
+                            double gameMinutes = current.timestamp / 60000.0;
+                            long dynamicWindowMs;
+                            if (gameMinutes < 15) {
+                                dynamicWindowMs = 15000 + (long)(gameMinutes * 1000); // 15s -> 30s
+                            } else if (gameMinutes < 30) {
+                                dynamicWindowMs = 30000 + (long)((gameMinutes - 15) * 2000); // 30s -> 60s
+                            } else {
+                                dynamicWindowMs = 60000 + (long)((gameMinutes - 30) * 1000); // 60s -> 70s+
+                            }
+                            
+                            // Modificateur de pression de fin de partie
+                            int weight = (current.timestamp > 1800000) ? 2 : 1; // > 30 minutes = double impact
 
-                    // C. Déduction Finale : Heavy Losing Early
+                            // On regarde le futur
+                            for (int j = i + 1; j < allEvents.size(); j++) {
+                                TimelineEvent future = allEvents.get(j);
+                                if (future.timestamp - current.timestamp > dynamicWindowMs) break; // Hors fenêtre dynamique
+                                
+                                if (!"CHAMPION_KILL".equals(future.type)) {
+                                    if (future.teamId == current.teamId) {
+                                        objectiveTakenAfter = true;
+                                    } else if (future.teamId == current.victimTeamId) {
+                                        objectiveLostAfter = true;
+                                    }
+                                }
+                            }
+                            
+                            // A. CLUTCH KILL (Kill -> Objectif)
+                            if (objectiveTakenAfter) {
+                                PlayerContext killer = byId.get(current.killerId);
+                                if (killer != null) killer.clutchKills += weight;
+                                // On pourrait aussi donner des points aux assistants ici
+                            }
+                            
+                            // B. UNFORCED ERROR / THROW (Mort -> Perte d'Objectif)
+                            if (objectiveLostAfter) {
+                                PlayerContext victim = byId.get(current.victimId);
+                                if (victim != null) {
+                                    // On vérifie si c'était un sacrifice (déjà géré par l'ancienne logique, mais on affine ici)
+                                    // Pour simplifier, toute mort suivie d'une perte d'objectif est un "Throw" potentiel
+                                    // Sauf si l'équipe de la victime a AUSSI pris un objectif (Trade)
+                                    if (!objectiveTakenAfter) {
+                                        victim.unforcedErrorDeaths += weight;
+                                    } else {
+                                        victim.sacrificialDeaths += weight; // C'était un trade (mort pour objectif)
+                                    }
+                                }
+                            }
+                            
+                            // C. PICK-OFF (Kill Isolé)
+                            // Nécessiterait les positions X,Y. Pour l'instant, on approxime :
+                            // Si aucun autre kill n'a eu lieu 10s avant ou après, c'est un pick-off.
+                            boolean isIsolated = true;
+                            for (int j = Math.max(0, i - 5); j < Math.min(allEvents.size(), i + 5); j++) {
+                                if (i == j) continue;
+                                TimelineEvent other = allEvents.get(j);
+                                if ("CHAMPION_KILL".equals(other.type) && Math.abs(other.timestamp - current.timestamp) < 10000) {
+                                    isIsolated = false;
+                                    break;
+                                }
+                            }
+                            
+                            if (isIsolated) {
+                                PlayerContext killer = byId.get(current.killerId);
+                                if (killer != null) killer.pickOffs += weight;
+                            }
+                        }
+                    }
+
+                    // C. Déduction Finale : Heavy Losing Early - inchangé
                     boolean blueHeavyLosing = (redEarlyKills - blueEarlyKills) >= 5;
                     boolean redHeavyLosing = (blueEarlyKills - redEarlyKills) >= 5;
                     for (PlayerContext ctx : byId.values()) {
@@ -294,6 +426,9 @@ public class MatchDataExtractor {
             e.printStackTrace();
         }
 
-        return byChamp;
+        TeamCompositionProfile blueTeamComp = createTeamProfile(blueTeamPlayers);
+        TeamCompositionProfile redTeamComp = createTeamProfile(redTeamPlayers);
+
+        return new FullContext(byChamp, blueTeamComp, redTeamComp);
     }
 }
