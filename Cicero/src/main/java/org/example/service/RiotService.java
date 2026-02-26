@@ -580,4 +580,37 @@ public class RiotService {
             return new JSONArray(body);
         }
     }
+
+    public Map<String, MatchDataExtractor.PlayerContext> getMatchContext(String matchId, String region) {
+        try {
+            String continent = getMatchRegion(region);
+            JSONObject matchInfo = executeRequest("https://" + continent + ".api.riotgames.com/lol/match/v5/matches/" + matchId);
+            JSONObject timeline = executeRequest("https://" + continent + ".api.riotgames.com/lol/match/v5/matches/" + matchId + "/timeline");
+            return MatchDataExtractor.extractAll(matchInfo, timeline);
+        } catch (Exception e) {
+            System.err.println("Erreur getMatchContext : " + e.getMessage());
+            return new HashMap<>();
+        }
+    }
+
+    /**
+     * Récupère la liste des derniers Match IDs pour un PUUID donné.
+     */
+    public List<String> getMatchIds(String puuid, String region, int count) {
+        try {
+            String continent = getMatchRegion(region);
+            // On limite à 20 max par sécurité, ou 'count'
+            String url = "https://" + continent + ".api.riotgames.com/lol/match/v5/matches/by-puuid/" + puuid + "/ids?start=0&count=" + count;
+
+            JSONArray jsonIds = executeRequestArray(url);
+            List<String> ids = new ArrayList<>();
+            for (int i = 0; i < jsonIds.length(); i++) {
+                ids.add(jsonIds.getString(i));
+            }
+            return ids;
+        } catch (Exception e) {
+            System.err.println("Erreur getMatchIds : " + e.getMessage());
+            return new ArrayList<>();
+        }
+    }
 }

@@ -27,7 +27,8 @@ public class DatabaseManager {
                 "discord_id TEXT PRIMARY KEY, " +
                 "riot_puuid TEXT NOT NULL, " +
                 "summoner_name TEXT NOT NULL, " +
-                "region TEXT DEFAULT 'euw1'" +
+                "region TEXT DEFAULT 'euw1', " +
+                "last_audit TEXT" +
                 ");";
 
         String sqlSessions = "CREATE TABLE IF NOT EXISTS chat_sessions (" +
@@ -55,16 +56,50 @@ public class DatabaseManager {
             stmt.execute(sqlSessions);
             stmt.execute(sqlSnapshots);
             stmt.execute(sqlConfig);
-            
-            // Migration simple : ajout de la colonne region si elle manque (pour les vieilles DB)
+
+            // Migrations pour les anciennes bases de données
             try {
                 stmt.execute("ALTER TABLE users ADD COLUMN region TEXT DEFAULT 'euw1'");
+            } catch (SQLException ignored) {
+                // La colonne existe déjà
+            }
+
+            try {
+                stmt.execute("ALTER TABLE users ADD COLUMN last_audit TEXT");
             } catch (SQLException ignored) {
                 // La colonne existe déjà
             }
         } catch (SQLException e) {
             System.out.println("Erreur init BDD: " + e.getMessage());
         }
+    }
+
+    // --- GESTION AUDITS PERFORMANCE (Utilisé par PerformanceCommand) ---
+    public synchronized void updateLastAudit(String discordId, String audit) {
+        String sql = "UPDATE users SET last_audit = ? WHERE discord_id = ?";
+        try (Connection conn = this.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, audit);
+            pstmt.setString(2, discordId);
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Erreur sauvegarde audit: " + e.getMessage());
+        }
+    }
+
+    public String getLastAudit(String discordId) {
+        String sql = "SELECT last_audit FROM users WHERE discord_id = ?";
+        try (Connection conn = this.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, discordId);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) {
+                return rs.getString("last_audit");
+            }
+        } catch (SQLException e) {
+            System.out.println("Erreur lecture audit: " + e.getMessage());
+        }
+        return null;
     }
 
     // --- GESTION CONFIGURATION ---
@@ -110,7 +145,6 @@ public class DatabaseManager {
         }
     }
 
-    // Surcharge pour compatibilité si besoin, par défaut EUW1
     public void saveUser(String discordId, String puuid, String summonerName) {
         saveUser(discordId, puuid, summonerName, "euw1");
     }
@@ -123,10 +157,10 @@ public class DatabaseManager {
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) {
                 return new UserRecord(
-                    discordId,
-                    rs.getString("riot_puuid"),
-                    rs.getString("summoner_name"),
-                    rs.getString("region")
+                        discordId,
+                        rs.getString("riot_puuid"),
+                        rs.getString("summoner_name"),
+                        rs.getString("region")
                 );
             }
         } catch (SQLException e) {
@@ -163,10 +197,10 @@ public class DatabaseManager {
     // --- GESTION SESSION CHAT ---
     public synchronized JSONArray getChatHistory(String discordId) {
         String sql = "SELECT history, last_updated FROM chat_sessions WHERE discord_id = ?";
-        
+
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            
+
             pstmt.setString(1, discordId);
             ResultSet rs = pstmt.executeQuery();
 
@@ -262,7 +296,7 @@ public class DatabaseManager {
             this.summonerName = summonerName;
             this.region = (region == null || region.isEmpty()) ? "euw1" : region;
         }
-        
+
         // Constructeur de compatibilité
         public UserRecord(String discordId, String puuid, String summonerName) {
             this(discordId, puuid, summonerName, "euw1");
