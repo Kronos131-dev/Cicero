@@ -2,6 +2,7 @@ package org.example.command;
 
 import org.example.DatabaseManager;
 import org.example.service.AiContextService;
+import org.example.service.BenchmarkService;
 import org.example.service.MistralService;
 import org.example.service.RiotService;
 import java.util.concurrent.ExecutorService;
@@ -11,5 +12,6 @@ public record BotContext(
     RiotService riotService,
     MistralService mistralService,
     AiContextService aiContextService,
+    BenchmarkService benchmarkService,
     ExecutorService executor
 ) {}

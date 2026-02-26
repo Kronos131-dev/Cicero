@@ -4,13 +4,11 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
+import net.dv8tion.jda.api.utils.ChunkingFilter;
+import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import io.github.cdimascio.dotenv.Dotenv;
 import org.example.command.*;
-import org.example.service.AiContextService;
-import org.example.service.DailyRecapService;
-import org.example.service.MistralService;
-import org.example.service.RiotService;
-import org.example.service.TavilyService;
+import org.example.service.*;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,12 +25,13 @@ public class LolBot extends ListenerAdapter {
         TavilyService tavilyService = new TavilyService();
         MistralService mistralService = new MistralService(riotService, tavilyService);
         AiContextService aiContextService = new AiContextService(db, riotService);
+        BenchmarkService benchmarkService = new BenchmarkService();
 
         // Injection des utilisateurs par défaut
         injectDefaultUsers(db, riotService);
 
         // Création du contexte global
-        BotContext context = new BotContext(db, riotService, mistralService, aiContextService, executor);
+        BotContext context = new BotContext(db, riotService, mistralService, aiContextService, benchmarkService, executor);
 
         // Gestionnaire de commandes
         CommandManager commandManager = new CommandManager(context);
@@ -47,10 +46,15 @@ public class LolBot extends ListenerAdapter {
         commandManager.addCommand(new TraceCommand());
         commandManager.addCommand(new TraceTavilyCommand());
         commandManager.addCommand(new SetRecapChannelCommand());
+        commandManager.addCommand(new PerformanceDetailsCommand());
+        commandManager.addCommand(new PerformanceTestCommand());
+
 
         // Démarrage du bot
         JDA jda = JDABuilder.createDefault(dotenv.get("DISCORD_TOKEN"))
-                .enableIntents(GatewayIntent.MESSAGE_CONTENT)
+                .enableIntents(GatewayIntent.MESSAGE_CONTENT, GatewayIntent.GUILD_MEMBERS)
+                .setMemberCachePolicy(MemberCachePolicy.ALL) // Met tous les membres en cache
+                .setChunkingFilter(ChunkingFilter.ALL)       // Force le téléchargement des membres au démarrage
                 .addEventListeners(commandManager)
                 .build()
                 .awaitReady(); // On attend que le bot soit prêt et connecté
@@ -61,14 +65,14 @@ public class LolBot extends ListenerAdapter {
         ).queue();
         
         // Démarrage du service de récap quotidien
-        new DailyRecapService(db, riotService, jda);
+        new DailyRecapService(db, riotService, jda, mistralService);
 
         System.out.println("Bot démarré !");
     }
 
     private static void injectDefaultUsers(DatabaseManager db, RiotService riotService) {
         String[][] defaultUsers = {
-            {"384388224912719874", "Yvain", "FDC"},
+            {"384388224912719874", "Yvaint", "FDC"},
             {"1182366478691991653", "RUSHCIEL", "CIEL"},
             {"203249597169008640", "FDC Adrisir", "0059"},
             {"321614400677216257", "Hakuryuu974", "EUW"},

@@ -27,7 +27,8 @@ public class DatabaseManager {
                 "discord_id TEXT PRIMARY KEY, " +
                 "riot_puuid TEXT NOT NULL, " +
                 "summoner_name TEXT NOT NULL, " +
-                "region TEXT DEFAULT 'euw1'" +
+                "region TEXT DEFAULT 'euw1', " +
+                "last_audit TEXT" +
                 ");";
 
         String sqlSessions = "CREATE TABLE IF NOT EXISTS chat_sessions (" +
@@ -49,22 +50,69 @@ public class DatabaseManager {
                 "value TEXT" +
                 ");";
 
+        String sqlDailyPerformances = "CREATE TABLE IF NOT EXISTS daily_performances (" +
+                "discord_id TEXT, " +
+                "date TEXT, " +
+                "games_played INTEGER, " +
+                "wins INTEGER, " +
+                "average_score REAL, " +
+                "lp_diff INTEGER, " +
+                "mvp_score REAL, " +
+                "ai_summary TEXT, " +
+                "PRIMARY KEY(discord_id, date)" +
+                ");";
+
         try (Connection conn = this.connect();
              Statement stmt = conn.createStatement()) {
             stmt.execute(sqlUsers);
             stmt.execute(sqlSessions);
             stmt.execute(sqlSnapshots);
             stmt.execute(sqlConfig);
-            
-            // Migration simple : ajout de la colonne region si elle manque (pour les vieilles DB)
+            stmt.execute(sqlDailyPerformances);
+
+            // Migrations pour les anciennes bases de données
             try {
                 stmt.execute("ALTER TABLE users ADD COLUMN region TEXT DEFAULT 'euw1'");
+            } catch (SQLException ignored) {
+                // La colonne existe déjà
+            }
+
+            try {
+                stmt.execute("ALTER TABLE users ADD COLUMN last_audit TEXT");
             } catch (SQLException ignored) {
                 // La colonne existe déjà
             }
         } catch (SQLException e) {
             System.out.println("Erreur init BDD: " + e.getMessage());
         }
+    }
+
+    // --- GESTION AUDITS PERFORMANCE (Utilisé par PerformanceCommand) ---
+    public synchronized void updateLastAudit(String discordId, String audit) {
+        String sql = "UPDATE users SET last_audit = ? WHERE discord_id = ?";
+        try (Connection conn = this.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, audit);
+            pstmt.setString(2, discordId);
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Erreur sauvegarde audit: " + e.getMessage());
+        }
+    }
+
+    public String getLastAudit(String discordId) {
+        String sql = "SELECT last_audit FROM users WHERE discord_id = ?";
+        try (Connection conn = this.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, discordId);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) {
+                return rs.getString("last_audit");
+            }
+        } catch (SQLException e) {
+            System.out.println("Erreur lecture audit: " + e.getMessage());
+        }
+        return null;
     }
 
     // --- GESTION CONFIGURATION ---
@@ -110,7 +158,6 @@ public class DatabaseManager {
         }
     }
 
-    // Surcharge pour compatibilité si besoin, par défaut EUW1
     public void saveUser(String discordId, String puuid, String summonerName) {
         saveUser(discordId, puuid, summonerName, "euw1");
     }
@@ -123,10 +170,10 @@ public class DatabaseManager {
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) {
                 return new UserRecord(
-                    discordId,
-                    rs.getString("riot_puuid"),
-                    rs.getString("summoner_name"),
-                    rs.getString("region")
+                        discordId,
+                        rs.getString("riot_puuid"),
+                        rs.getString("summoner_name"),
+                        rs.getString("region")
                 );
             }
         } catch (SQLException e) {
@@ -163,10 +210,10 @@ public class DatabaseManager {
     // --- GESTION SESSION CHAT ---
     public synchronized JSONArray getChatHistory(String discordId) {
         String sql = "SELECT history, last_updated FROM chat_sessions WHERE discord_id = ?";
-        
+
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            
+
             pstmt.setString(1, discordId);
             ResultSet rs = pstmt.executeQuery();
 
@@ -250,6 +297,81 @@ public class DatabaseManager {
         return null;
     }
 
+    // --- GESTION DAILY PERFORMANCES ---
+    public synchronized void saveDailyPerformance(String discordId, String date, int gamesPlayed, int wins, double averageScore, int lpDiff, double mvpScore, String aiSummary) {
+        String sql = "INSERT OR REPLACE INTO daily_performances(discord_id, date, games_played, wins, average_score, lp_diff, mvp_score, ai_summary) VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
+        try (Connection conn = this.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, discordId);
+            pstmt.setString(2, date);
+            pstmt.setInt(3, gamesPlayed);
+            pstmt.setInt(4, wins);
+            pstmt.setDouble(5, averageScore);
+            pstmt.setInt(6, lpDiff);
+            pstmt.setDouble(7, mvpScore);
+            pstmt.setString(8, aiSummary);
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Erreur sauvegarde daily performance: " + e.getMessage());
+        }
+    }
+
+    public List<String> getBestPlayersOfPeriod(String fromDateString) {
+        List<String> bestDiscordIds = new ArrayList<>();
+        String sql = "SELECT discord_id, AVG(mvp_score) as final_score FROM daily_performances WHERE date >= ? AND games_played > 0 GROUP BY discord_id ORDER BY final_score DESC";
+
+        try (Connection conn = this.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            
+            pstmt.setString(1, fromDateString);
+            ResultSet rs = pstmt.executeQuery();
+
+            double bestScore = -1.0;
+            boolean first = true;
+
+            while (rs.next()) {
+                double score = rs.getDouble("final_score");
+                String discordId = rs.getString("discord_id");
+
+                if (first) {
+                    bestScore = score;
+                    bestDiscordIds.add(discordId);
+                    first = false;
+                } else {
+                    if (Double.compare(score, bestScore) == 0) {
+                        bestDiscordIds.add(discordId);
+                    } else {
+                        break;
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("Erreur calcul meilleurs joueurs: " + e.getMessage());
+        }
+        return bestDiscordIds;
+    }
+
+    public PeriodStats getPlayerPeriodStats(String discordId, String fromDateString) {
+        String sql = "SELECT SUM(games_played) as total_games, SUM(wins) as total_wins, AVG(average_score) as avg_score, AVG(mvp_score) as avg_mvp " +
+                     "FROM daily_performances WHERE discord_id = ? AND date >= ?";
+        try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, discordId);
+            pstmt.setString(2, fromDateString);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next() && rs.getInt("total_games") > 0) {
+                PeriodStats stats = new PeriodStats();
+                stats.totalGames = rs.getInt("total_games");
+                stats.totalWins = rs.getInt("total_wins");
+                stats.avgScore = rs.getDouble("avg_score");
+                stats.avgMvpScore = rs.getDouble("avg_mvp");
+                return stats;
+            }
+        } catch (SQLException e) {
+            System.out.println("Erreur getPlayerPeriodStats: " + e.getMessage());
+        }
+        return null;
+    }
+
     public static class UserRecord {
         public String discordId;
         public String puuid;
@@ -262,7 +384,7 @@ public class DatabaseManager {
             this.summonerName = summonerName;
             this.region = (region == null || region.isEmpty()) ? "euw1" : region;
         }
-        
+
         // Constructeur de compatibilité
         public UserRecord(String discordId, String puuid, String summonerName) {
             this(discordId, puuid, summonerName, "euw1");
@@ -283,5 +405,34 @@ public class DatabaseManager {
             this.lp = lp;
             this.timestamp = timestamp;
         }
+    }
+
+    public static class DailyPerformanceRecord {
+        public String discordId;
+        public String date;
+        public int gamesPlayed;
+        public int wins;
+        public double averageScore;
+        public int lpDiff;
+        public double mvpScore;
+        public String aiSummary;
+
+        public DailyPerformanceRecord(String discordId, String date, int gamesPlayed, int wins, double averageScore, int lpDiff, double mvpScore, String aiSummary) {
+            this.discordId = discordId;
+            this.date = date;
+            this.gamesPlayed = gamesPlayed;
+            this.wins = wins;
+            this.averageScore = averageScore;
+            this.lpDiff = lpDiff;
+            this.mvpScore = mvpScore;
+            this.aiSummary = aiSummary;
+        }
+    }
+
+    public static class PeriodStats {
+        public int totalGames;
+        public int totalWins;
+        public double avgScore;
+        public double avgMvpScore;
     }
 }

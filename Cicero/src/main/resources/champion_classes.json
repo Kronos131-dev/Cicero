@@ -1,0 +1,9 @@
+{
+  "COMBATTANT_ECLAIR": ["Vladimir", "Yasuo", "Viego", "Diana", "Yone", "Gangplank", "Gwen", "Tryndamere", "Kassadin", "Jayce"],
+  "COMBATTANT": ["Aatrox", "Briar", "Camille", "Darius", "Fiora", "Garen", "Gnar", "Sylas", "Aurora", "Gragas", "Urgot", "Volibear", "Illaoi", "Riven", "Irelia", "Jarvan IV", "Rumble", "Jax", "Kled", "Swain", "Shyvana", "Lee Sin", "Wukong", "Singed", "Mordekaiser", "Olaf", "Pantheon", "Sett", "Trundle", "Rek'Sai", "Vi", "Warwick", "Yorick", "Zaahen", "Renekton", "Xin Zhao"],
+  "TANK": ["Alistar", "Sion", "Skarner", "Blitzcrank", "Amumu", "Malphite", "Leona", "Nasus", "Braum", "Maokai", "K'Sante", "Dr. Mundo", "Udyr", "Cho'Gath", "Galio", "Shen", "Nautilus", "Ornn", "Poppy", "Rammus", "Sejuani", "Nunu & Willump", "Rell", "Tahm Kench", "Zac", "Thresh", "Taric"],
+  "ENCHANTER": ["Bard", "Soraka", "Sona", "Ivern", "Janna", "Nami", "Renata Glasc", "Seraphine", "Milio", "Lulu", "Karma", "Rakan", "Zilean", "Yuumi"],
+  "ASSASSIN": ["Annie", "Akali", "Ahri", "Shaco", "Kha'Zix", "LeBlanc", "Rengar", "Ekko", "Elise", "Evelynn", "Fizz", "Kayn", "Katarina", "Zed", "Talon", "Master Yi", "Qiyana", "Pyke", "Nocturne", "Naafiri", "Vex"],
+  "MAGE": ["Aurelion Sol", "Anivia", "Azir", "Lillia", "Lissandra", "Karthus", "Cassiopeia", "Brand", "Hwei", "Veigar", "Fiddlesticks", "Teemo", "Heimerdinger", "Xerath", "Syndra", "Zoe", "Orianna", "Zyra", "Taliyah", "Neeko", "Lux", "Ryze", "Malzahar", "Nidalee", "Morgana", "Ziggs", "Twisted Fate", "Viktor", "Vel'Koz"],
+  "ADC": ["Akshan", "Aphelios", "Smolder", "Kalista", "Ashe", "Kai'Sa", "Caitlyn", "Jinx", "Corki", "Ezreal", "Graves", "Jhin", "Twitch", "Sivir", "Draven", "Miss Fortune", "Senna", "Samira", "Nilah", "Lucian", "Kayle", "Quinn", "Kog'Maw", "Bel'Veth", "Zeri", "Vayne", "Xayah", "Varus", "Kindred", "Tristana"]
+}
