@@ -50,12 +50,25 @@ public class DatabaseManager {
                 "value TEXT" +
                 ");";
 
+        String sqlDailyPerformances = "CREATE TABLE IF NOT EXISTS daily_performances (" +
+                "discord_id TEXT, " +
+                "date TEXT, " +
+                "games_played INTEGER, " +
+                "wins INTEGER, " +
+                "average_score REAL, " +
+                "lp_diff INTEGER, " +
+                "mvp_score REAL, " +
+                "ai_summary TEXT, " +
+                "PRIMARY KEY(discord_id, date)" +
+                ");";
+
         try (Connection conn = this.connect();
              Statement stmt = conn.createStatement()) {
             stmt.execute(sqlUsers);
             stmt.execute(sqlSessions);
             stmt.execute(sqlSnapshots);
             stmt.execute(sqlConfig);
+            stmt.execute(sqlDailyPerformances);
 
             // Migrations pour les anciennes bases de données
             try {
@@ -284,6 +297,81 @@ public class DatabaseManager {
         return null;
     }
 
+    // --- GESTION DAILY PERFORMANCES ---
+    public synchronized void saveDailyPerformance(String discordId, String date, int gamesPlayed, int wins, double averageScore, int lpDiff, double mvpScore, String aiSummary) {
+        String sql = "INSERT OR REPLACE INTO daily_performances(discord_id, date, games_played, wins, average_score, lp_diff, mvp_score, ai_summary) VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
+        try (Connection conn = this.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, discordId);
+            pstmt.setString(2, date);
+            pstmt.setInt(3, gamesPlayed);
+            pstmt.setInt(4, wins);
+            pstmt.setDouble(5, averageScore);
+            pstmt.setInt(6, lpDiff);
+            pstmt.setDouble(7, mvpScore);
+            pstmt.setString(8, aiSummary);
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Erreur sauvegarde daily performance: " + e.getMessage());
+        }
+    }
+
+    public List<String> getBestPlayersOfPeriod(String fromDateString) {
+        List<String> bestDiscordIds = new ArrayList<>();
+        String sql = "SELECT discord_id, AVG(mvp_score) as final_score FROM daily_performances WHERE date >= ? AND games_played > 0 GROUP BY discord_id ORDER BY final_score DESC";
+
+        try (Connection conn = this.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            
+            pstmt.setString(1, fromDateString);
+            ResultSet rs = pstmt.executeQuery();
+
+            double bestScore = -1.0;
+            boolean first = true;
+
+            while (rs.next()) {
+                double score = rs.getDouble("final_score");
+                String discordId = rs.getString("discord_id");
+
+                if (first) {
+                    bestScore = score;
+                    bestDiscordIds.add(discordId);
+                    first = false;
+                } else {
+                    if (Double.compare(score, bestScore) == 0) {
+                        bestDiscordIds.add(discordId);
+                    } else {
+                        break;
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("Erreur calcul meilleurs joueurs: " + e.getMessage());
+        }
+        return bestDiscordIds;
+    }
+
+    public PeriodStats getPlayerPeriodStats(String discordId, String fromDateString) {
+        String sql = "SELECT SUM(games_played) as total_games, SUM(wins) as total_wins, AVG(average_score) as avg_score, AVG(mvp_score) as avg_mvp " +
+                     "FROM daily_performances WHERE discord_id = ? AND date >= ?";
+        try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, discordId);
+            pstmt.setString(2, fromDateString);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next() && rs.getInt("total_games") > 0) {
+                PeriodStats stats = new PeriodStats();
+                stats.totalGames = rs.getInt("total_games");
+                stats.totalWins = rs.getInt("total_wins");
+                stats.avgScore = rs.getDouble("avg_score");
+                stats.avgMvpScore = rs.getDouble("avg_mvp");
+                return stats;
+            }
+        } catch (SQLException e) {
+            System.out.println("Erreur getPlayerPeriodStats: " + e.getMessage());
+        }
+        return null;
+    }
+
     public static class UserRecord {
         public String discordId;
         public String puuid;
@@ -317,5 +405,34 @@ public class DatabaseManager {
             this.lp = lp;
             this.timestamp = timestamp;
         }
+    }
+
+    public static class DailyPerformanceRecord {
+        public String discordId;
+        public String date;
+        public int gamesPlayed;
+        public int wins;
+        public double averageScore;
+        public int lpDiff;
+        public double mvpScore;
+        public String aiSummary;
+
+        public DailyPerformanceRecord(String discordId, String date, int gamesPlayed, int wins, double averageScore, int lpDiff, double mvpScore, String aiSummary) {
+            this.discordId = discordId;
+            this.date = date;
+            this.gamesPlayed = gamesPlayed;
+            this.wins = wins;
+            this.averageScore = averageScore;
+            this.lpDiff = lpDiff;
+            this.mvpScore = mvpScore;
+            this.aiSummary = aiSummary;
+        }
+    }
+
+    public static class PeriodStats {
+        public int totalGames;
+        public int totalWins;
+        public double avgScore;
+        public double avgMvpScore;
     }
 }

@@ -32,13 +32,16 @@ public class RiotService {
     // --- CACHES ---
     private final SimpleCache<String, String> puuidCache = new SimpleCache<>(24 * 60 * 60 * 1000); // 24h
     private final SimpleCache<String, Map<String, RankInfo>> rankCache = new SimpleCache<>(10 * 60 * 1000); // 10 min
-    // Réduction du cache d'historique à 1 minute pour éviter de rater une game qui vient de finir
     private final SimpleCache<String, List<String>> matchHistoryCache = new SimpleCache<>(60 * 1000); // 1 min
     private final SimpleCache<String, String> matchAnalysisCache = new SimpleCache<>(30 * 60 * 1000); // 30 min
     private final SimpleCache<String, String> matchSummaryCache = new SimpleCache<>(30 * 60 * 1000); // 30 min
     private final SimpleCache<String, String> versionCache = new SimpleCache<>(6 * 60 * 60 * 1000); // 6h
     private final SimpleCache<String, JSONObject> itemsCache = new SimpleCache<>(24 * 60 * 60 * 1000); // 24h
     private final SimpleCache<String, JSONObject> runesCache = new SimpleCache<>(24 * 60 * 60 * 1000); // 24h
+    
+    // Nouveaux caches pour les données brutes (partagés entre Context et Analysis)
+    private final SimpleCache<String, JSONObject> rawMatchCache = new SimpleCache<>(30 * 60 * 1000); // 30 min
+    private final SimpleCache<String, JSONObject> rawTimelineCache = new SimpleCache<>(30 * 60 * 1000); // 30 min
 
     public static class RankInfo {
         public String tier;
@@ -75,6 +78,7 @@ public class RiotService {
                     Response response = chain.proceed(request);
                     
                     if (response.code() == 429) {
+                        response.close(); // FERMETURE DU BODY POUR EVITER LE LEAK
                         isQuotaExceeded.set(true);
                         long retryAfter = 120;
                         String retryHeader = response.header("Retry-After");
@@ -86,6 +90,7 @@ public class RiotService {
                     }
                     
                     if (response.code() == 403) {
+                        response.close(); // FERMETURE DU BODY
                         isQuotaExceeded.set(true);
                         quotaResetTime.set(System.currentTimeMillis() + (24 * 60 * 60 * 1000));
                         throw new IOException("API_KEY_INVALID");
@@ -120,8 +125,6 @@ public class RiotService {
     @Tool("Récupère le PUUID d'un joueur à partir de son nom d'invocateur (Summoner Name) et de sa région.")
     public String getPuuidBySummonerName(String summonerName, String region) {
         try {
-            // Note: L'API Summoner V4 est toujours active mais Riot pousse vers Riot ID.
-            // Cependant, pour les vieux comptes ou les recherches par nom simple, c'est utile.
             String safeName = URLEncoder.encode(summonerName, StandardCharsets.UTF_8).replace("+", "%20");
             String url = "https://" + region + ".api.riotgames.com/lol/summoner/v4/summoners/by-name/" + safeName;
             JSONObject json = executeRequest(url);
@@ -129,9 +132,6 @@ public class RiotService {
             
             return json.getString("puuid");
         } catch (Exception e) {
-            // Si l'API Summoner échoue (souvent 404 si le nom a changé vers Riot ID), on tente une recherche Riot ID par défaut
-            // On suppose que le summonerName est le GameName et on tente le tag par défaut de la région (ex: EUW)
-            // C'est une heuristique risquée mais utile en fallback.
             return "Error: " + e.getMessage();
         }
     }
@@ -238,10 +238,9 @@ public class RiotService {
                 return matchIds.get(0);
             }
 
-            String continent = getMatchRegion(region);
             for (String matchId : matchIds) {
                 try {
-                    JSONObject json = executeRequest("https://" + continent + ".api.riotgames.com/lol/match/v5/matches/" + matchId);
+                    JSONObject json = getRawMatch(matchId, region);
                     JSONObject info = json.getJSONObject("info");
                     JSONArray participants = info.getJSONArray("participants");
 
@@ -266,25 +265,43 @@ public class RiotService {
         return "None";
     }
 
+    // --- METHODES D'ACCÈS AUX DONNÉES BRUTES AVEC CACHE ---
+    private JSONObject getRawMatch(String matchId, String region) throws IOException {
+        JSONObject cached = rawMatchCache.get(matchId);
+        if (cached != null) return cached;
+
+        String continent = getMatchRegion(region);
+        JSONObject json = executeRequest("https://" + continent + ".api.riotgames.com/lol/match/v5/matches/" + matchId);
+        rawMatchCache.put(matchId, json);
+        return json;
+    }
+
+    private JSONObject getRawTimeline(String matchId, String region) throws IOException {
+        JSONObject cached = rawTimelineCache.get(matchId);
+        if (cached != null) return cached;
+
+        String continent = getMatchRegion(region);
+        JSONObject json = executeRequest("https://" + continent + ".api.riotgames.com/lol/match/v5/matches/" + matchId + "/timeline");
+        rawTimelineCache.put(matchId, json);
+        return json;
+    }
+
     // --- METHODE 1: ANALYSE LOURDE (JSON STRUCTURÉ POUR L'IA) ---
     @Tool("Récupère une analyse APPROFONDIE (JSON complet: Timeline, Events, Items, Runes) d'un match. À utiliser pour analyser une partie précise.")
     public String getMatchAnalysis(String matchId, String targetPuuid, String region) {
         try {
-            String cacheKey = matchId + "#" + targetPuuid + "#JSON_V2"; // V2 for optimized structure
+            String cacheKey = matchId + "#" + targetPuuid + "#JSON_V2";
             String cachedAnalysis = matchAnalysisCache.get(cacheKey);
             if (cachedAnalysis != null) return cachedAnalysis;
 
-            String continent = getMatchRegion(region);
-            
             CompletableFuture<JSONObject> infoFuture = CompletableFuture.supplyAsync(() -> {
-                try { return executeRequest("https://" + continent + ".api.riotgames.com/lol/match/v5/matches/" + matchId); } 
+                try { return getRawMatch(matchId, region); } 
                 catch (IOException e) { throw new RuntimeException(e); }
             }, batchExecutor);
 
             CompletableFuture<JSONObject> timelineFuture = CompletableFuture.supplyAsync(() -> {
-                try { return executeRequest("https://" + continent + ".api.riotgames.com/lol/match/v5/matches/" + matchId + "/timeline"); } 
+                try { return getRawTimeline(matchId, region); } 
                 catch (IOException e) { 
-                    // Si la timeline échoue (404 souvent), on renvoie un JSON vide pour ne pas bloquer l'analyse principale
                     return new JSONObject(); 
                 }
             }, batchExecutor);
@@ -292,24 +309,17 @@ public class RiotService {
             JSONObject matchInfo = infoFuture.join();
             JSONObject timeline = timelineFuture.join();
             
-            // Si la timeline est vide, on fait une analyse partielle
             if (timeline.isEmpty()) {
-                // Fallback vers une analyse plus légère si la timeline manque
                 return extractLightStats(matchInfo, targetPuuid).toString();
             }
             
             JSONObject analysisJson = matchProcessor.buildDeepAnalysisJson(matchInfo, timeline, targetPuuid);
-            
-            // --- ENRICHISSEMENT DES DONNÉES (Items & Runes) ---
-            // On remplace les IDs par les noms directement ici pour éviter que l'IA ne doive appeler des outils
             enrichAnalysisWithNames(analysisJson);
             
             String result = analysisJson.toString();
-            
             matchAnalysisCache.put(cacheKey, result);
             return result;
         } catch (Exception e) {
-            // En cas d'erreur fatale, on essaie de renvoyer au moins le résumé léger
             try {
                 return getMatchHistorySummary(targetPuuid, region, null, 1);
             } catch (Exception ex) {
@@ -335,8 +345,7 @@ public class RiotService {
             List<CompletableFuture<JSONObject>> futures = matchIds.stream()
                 .map(matchId -> CompletableFuture.supplyAsync(() -> {
                     try {
-                        String continent = getMatchRegion(region);
-                        JSONObject json = executeRequest("https://" + continent + ".api.riotgames.com/lol/match/v5/matches/" + matchId);
+                        JSONObject json = getRawMatch(matchId, region);
                         return extractLightStats(json, puuid);
                     } catch (Exception e) {
                         return new JSONObject().put("error", "Match " + matchId + " failed");
@@ -384,7 +393,6 @@ public class RiotService {
         stats.put("gold", me.getInt("goldEarned"));
         stats.put("vision", me.getInt("visionScore"));
         
-        // Items (IDs only for compactness)
         JSONArray items = new JSONArray();
         for(int i=0; i<=6; i++) {
             int item = me.getInt("item" + i);
@@ -414,7 +422,6 @@ public class RiotService {
         JSONObject cached = itemsCache.get(version);
         if (cached != null) return cached;
         try {
-            // On utilise fr_FR pour avoir les noms et descriptions en français
             JSONObject json = executeRequest("https://ddragon.leagueoflegends.com/cdn/" + version + "/data/fr_FR/item.json");
             JSONObject data = json.getJSONObject("data");
             itemsCache.put(version, data);
@@ -429,14 +436,13 @@ public class RiotService {
         JSONObject cached = runesCache.get(version);
         if (cached != null) return cached;
         try {
-            // Le format des runes est un tableau, on le convertit en Map pour un accès rapide par ID
             JSONArray jsonArray = executeRequestArray("https://ddragon.leagueoflegends.com/cdn/" + version + "/data/fr_FR/runesReforged.json");
             JSONObject runesMap = new JSONObject();
             
             for (int i = 0; i < jsonArray.length(); i++) {
                 JSONObject tree = jsonArray.getJSONObject(i);
                 int treeId = tree.getInt("id");
-                runesMap.put(String.valueOf(treeId), tree.getString("name")); // Arbre principal (ex: Domination)
+                runesMap.put(String.valueOf(treeId), tree.getString("name"));
                 
                 JSONArray slots = tree.getJSONArray("slots");
                 for (int j = 0; j < slots.length(); j++) {
@@ -461,11 +467,9 @@ public class RiotService {
             JSONObject itemsData = getItemsData(version);
             JSONObject runesData = getRunesData(version);
 
-            // 1. Enrichir le joueur cible
             if (analysis.has("target_player")) {
                 enrichPlayerStats(analysis.getJSONObject("target_player"), itemsData, runesData);
                 
-                // Enrichir le build path (Timeline)
                 if (analysis.getJSONObject("target_player").has("build_path")) {
                     JSONArray buildPath = analysis.getJSONObject("target_player").getJSONArray("build_path");
                     for (int i = 0; i < buildPath.length(); i++) {
@@ -478,7 +482,6 @@ public class RiotService {
                 }
             }
 
-            // 2. Enrichir les alliés
             if (analysis.has("allies")) {
                 JSONArray allies = analysis.getJSONArray("allies");
                 for (int i = 0; i < allies.length(); i++) {
@@ -486,7 +489,6 @@ public class RiotService {
                 }
             }
 
-            // 3. Enrichir les ennemis
             if (analysis.has("enemies")) {
                 JSONArray enemies = analysis.getJSONArray("enemies");
                 for (int i = 0; i < enemies.length(); i++) {
@@ -500,7 +502,6 @@ public class RiotService {
     }
 
     private void enrichPlayerStats(JSONObject player, JSONObject itemsData, JSONObject runesData) {
-        // Items
         if (player.has("final_items")) {
             JSONArray itemIds = player.getJSONArray("final_items");
             JSONArray itemNames = new JSONArray();
@@ -515,7 +516,6 @@ public class RiotService {
             player.put("final_items_names", itemNames);
         }
 
-        // Runes
         if (player.has("rune_keystone")) {
             String id = String.valueOf(player.getInt("rune_keystone"));
             player.put("rune_keystone_name", runesData.optString(id, "Unknown Rune"));
@@ -537,7 +537,6 @@ public class RiotService {
             JSONObject itemsData = getItemsData(version);
             
             StringBuilder sb = new StringBuilder();
-            // Nettoyage des IDs (suppression des crochets éventuels si l'IA envoie "[1001, 3070]")
             String cleanIds = itemIdsCommaSeparated.replace("[", "").replace("]", "").replace("\"", "");
             String[] ids = cleanIds.split(",");
             
@@ -583,9 +582,8 @@ public class RiotService {
 
     public MatchDataExtractor.FullContext getMatchContext(String matchId, String region) {
         try {
-            String continent = getMatchRegion(region);
-            JSONObject matchInfo = executeRequest("https://" + continent + ".api.riotgames.com/lol/match/v5/matches/" + matchId);
-            JSONObject timeline = executeRequest("https://" + continent + ".api.riotgames.com/lol/match/v5/matches/" + matchId + "/timeline");
+            JSONObject matchInfo = getRawMatch(matchId, region);
+            JSONObject timeline = getRawTimeline(matchId, region);
             return MatchDataExtractor.extractAll(matchInfo, timeline);
         } catch (Exception e) {
             System.err.println("Erreur getMatchContext : " + e.getMessage());
@@ -593,24 +591,39 @@ public class RiotService {
         }
     }
 
-    /**
-     * Récupère la liste des derniers Match IDs pour un PUUID donné.
-     */
     public List<String> getMatchIds(String puuid, String region, int count) {
         try {
-            String continent = getMatchRegion(region);
-            // On limite à 20 max par sécurité, ou 'count'
-            String url = "https://" + continent + ".api.riotgames.com/lol/match/v5/matches/by-puuid/" + puuid + "/ids?start=0&count=" + count;
-
-            JSONArray jsonIds = executeRequestArray(url);
-            List<String> ids = new ArrayList<>();
-            for (int i = 0; i < jsonIds.length(); i++) {
-                ids.add(jsonIds.getString(i));
-            }
-            return ids;
+            return getMatchHistoryIds(puuid, region, null, count);
         } catch (Exception e) {
             System.err.println("Erreur getMatchIds : " + e.getMessage());
             return new ArrayList<>();
         }
+    }
+
+    public List<String> getMatchIdsLast24h(String puuid, String region) {
+        try {
+            // Date d'il y a 24h, en SECONDES (format exigé par Riot pour startTime)
+            long startTimeSec = (System.currentTimeMillis() - (24 * 60 * 60 * 1000)) / 1000;
+            String continent = getMatchRegion(region);
+            
+            String url = "https://" + continent + ".api.riotgames.com/lol/match/v5/matches/by-puuid/" + puuid.trim() + "/ids?startTime=" + startTimeSec + "&count=20";
+            
+            JSONArray matches = executeRequestArray(url);
+            List<String> ids = new ArrayList<>();
+            for(int i = 0; i < matches.length(); i++) {
+                ids.add(matches.getString(i));
+            }
+            return ids;
+        } catch (Exception e) {
+            System.err.println("Erreur getMatchIdsLast24h : " + e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    public long getGameCreationTime(String matchId, String region) {
+        try {
+            JSONObject match = getRawMatch(matchId, region);
+            return match.getJSONObject("info").getLong("gameCreation");
+        } catch (Exception e) { return 0; }
     }
 }

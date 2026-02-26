@@ -4,6 +4,8 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
+import net.dv8tion.jda.api.utils.ChunkingFilter;
+import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import io.github.cdimascio.dotenv.Dotenv;
 import org.example.command.*;
 import org.example.service.*;
@@ -50,7 +52,9 @@ public class LolBot extends ListenerAdapter {
 
         // Démarrage du bot
         JDA jda = JDABuilder.createDefault(dotenv.get("DISCORD_TOKEN"))
-                .enableIntents(GatewayIntent.MESSAGE_CONTENT)
+                .enableIntents(GatewayIntent.MESSAGE_CONTENT, GatewayIntent.GUILD_MEMBERS)
+                .setMemberCachePolicy(MemberCachePolicy.ALL) // Met tous les membres en cache
+                .setChunkingFilter(ChunkingFilter.ALL)       // Force le téléchargement des membres au démarrage
                 .addEventListeners(commandManager)
                 .build()
                 .awaitReady(); // On attend que le bot soit prêt et connecté
@@ -61,14 +65,14 @@ public class LolBot extends ListenerAdapter {
         ).queue();
         
         // Démarrage du service de récap quotidien
-        new DailyRecapService(db, riotService, jda);
+        new DailyRecapService(db, riotService, jda, mistralService);
 
         System.out.println("Bot démarré !");
     }
 
     private static void injectDefaultUsers(DatabaseManager db, RiotService riotService) {
         String[][] defaultUsers = {
-            {"384388224912719874", "Yvain", "FDC"},
+            {"384388224912719874", "Yvaint", "FDC"},
             {"1182366478691991653", "RUSHCIEL", "CIEL"},
             {"203249597169008640", "FDC Adrisir", "0059"},
             {"321614400677216257", "Hakuryuu974", "EUW"},

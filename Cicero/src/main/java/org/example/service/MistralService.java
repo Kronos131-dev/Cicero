@@ -49,6 +49,24 @@ public class MistralService {
     }
 
     /**
+     * NŒUD 5 : Le Chroniqueur Quotidien.
+     * Il retourne une phrase courte pour résumer la journée d'un joueur.
+     */
+    interface DailyChroniclerAgent {
+        @SystemMessage(PromptRegistry.DAILY_CHRONICLER_SYSTEM)
+        String summarizeDay(@UserMessage String playerStatsContext);
+    }
+
+    /**
+     * NŒUD 6 : Le Chroniqueur MVP Périodique.
+     * Il rédige un éloge pour le MVP de la semaine ou du mois.
+     */
+    interface PeriodMvpChroniclerAgent {
+        @SystemMessage(PromptRegistry.PERIOD_MVP_CHRONICLER_SYSTEM)
+        String writeMvpEulogy(@UserMessage String playerStatsContext);
+    }
+
+    /**
      * Agent Générique pour les anciennes commandes.
      */
     interface LolAgent {
@@ -165,6 +183,38 @@ public class MistralService {
 
         String prompt = "Voici les ajustements techniques de l'analyste. Rédige les commentaires pour chaque joueur et renvoie un JSON final formaté comme une liste d'objets contenant les champs 'name', 'champion', 'role', 'team', 'score' (qui est la note ajustée) et 'comment'. Voici les données:\n" + analystReportStr;
         return agent.writeDiscordCommentary(prompt);
+    }
+
+    public String runDailyChronicler(String playerStatsContext) {
+        // Modèle créatif (0.8) pour le ton sarcastique/hype
+        ChatModel chroniclerModel = MistralAiChatModel.builder()
+                .apiKey(apiKey)
+                .modelName("mistral-large-latest")
+                .temperature(0.8)
+                .timeout(Duration.ofMinutes(2))
+                .build();
+
+        DailyChroniclerAgent agent = AiServices.builder(DailyChroniclerAgent.class)
+                .chatModel(chroniclerModel)
+                .build();
+
+        return agent.summarizeDay(playerStatsContext);
+    }
+
+    public String runPeriodMvpChronicler(String playerStatsContext) {
+        // Modèle créatif (0.9) pour l'éloge épique
+        ChatModel chroniclerModel = MistralAiChatModel.builder()
+                .apiKey(apiKey)
+                .modelName("mistral-large-latest")
+                .temperature(0.9)
+                .timeout(Duration.ofMinutes(2))
+                .build();
+
+        PeriodMvpChroniclerAgent agent = AiServices.builder(PeriodMvpChroniclerAgent.class)
+                .chatModel(chroniclerModel)
+                .build();
+
+        return agent.writeMvpEulogy(playerStatsContext);
     }
 
     // ========================================================================
