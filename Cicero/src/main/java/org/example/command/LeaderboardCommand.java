@@ -14,6 +14,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 public class LeaderboardCommand implements SlashCommand {
 
@@ -28,8 +29,9 @@ public class LeaderboardCommand implements SlashCommand {
     @Override
     public void execute(SlashCommandInteractionEvent event, BotContext ctx) {
         event.deferReply().queue();
-        List<DatabaseManager.UserRecord> users = ctx.db().getAllUsers();
-        if (users.isEmpty()) {
+        
+        Map<String, List<DatabaseManager.UserRecord>> usersMap = ctx.db().getAllUsersGrouped();
+        if (usersMap.isEmpty()) {
             event.getHook().sendMessage("Aucun utilisateur enregistré.").queue();
             return;
         }
@@ -50,14 +52,29 @@ public class LeaderboardCommand implements SlashCommand {
 
         ctx.executor().submit(() -> {
             List<PlayerRank> rankedPlayers = new ArrayList<>();
-            for (DatabaseManager.UserRecord user : users) {
-                try {
-                    RiotService.RankInfo rank = ctx.riotService().getRank(user.puuid, user.region);
-                    int score = RankUtils.calculateEloScore(rank.tier, rank.rank, rank.lp);
-                    rankedPlayers.add(new PlayerRank(user.summonerName, rank, score));
-                } catch (Exception ignored) {}
+            
+            // On parcourt chaque utilisateur Discord
+            for (Map.Entry<String, List<DatabaseManager.UserRecord>> entry : usersMap.entrySet()) {
+                PlayerRank bestAccountForUser = null;
+                int highestElo = -1;
+                
+                // On cherche son compte avec le plus haut élo
+                for (DatabaseManager.UserRecord userAcc : entry.getValue()) {
+                    try {
+                        RiotService.RankInfo rank = ctx.riotService().getRank(userAcc.puuid, userAcc.region);
+                        if (rank == null) continue;
+                        
+                        int score = RankUtils.calculateEloScore(rank.tier, rank.rank, rank.lp);
+                        if (score > highestElo) {
+                            highestElo = score;
+                            bestAccountForUser = new PlayerRank(userAcc.summonerName, rank, score);
+                        }
+                    } catch (Exception ignored) {}
+                }
+                if (bestAccountForUser != null) {
+                    rankedPlayers.add(bestAccountForUser);
+                }
             }
-
             rankedPlayers.sort(Comparator.comparingInt(PlayerRank::getScore).reversed());
 
             StringBuilder sb = new StringBuilder();

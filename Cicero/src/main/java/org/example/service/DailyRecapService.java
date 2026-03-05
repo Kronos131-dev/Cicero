@@ -294,7 +294,7 @@ public class DailyRecapService {
                 if (currentRank == null) continue;
 
                 // 2. Récupérer le snapshot précédent
-                DatabaseManager.SnapshotRecord snapshot = db.getSnapshot(user.discordId);
+                DatabaseManager.SnapshotRecord snapshot = db.getSnapshot(user.puuid);
                 
                 // Calcul des LP gagnés/perdus avec l'Elo Absolu
                 int lpDiff = 0;
@@ -411,13 +411,13 @@ public class DailyRecapService {
                 }
                 
                 // Sauvegarde en base
-                db.saveDailyPerformance(user.discordId, todayDateString, gamesPlayed, wins, averageScore, lpDiff, mvpScore, aiSummary);
+                db.saveDailyPerformance(user.puuid, user.discordId, todayDateString, gamesPlayed, wins, averageScore, lpDiff, mvpScore, aiSummary);
                 
                 recapList.add(new UserRecapData(user, currentRank, wins, losses, lpDiff, sameTierRank, hasSnapshot, averageScore, mvpScore, aiSummary));
 
                 // 4. Mettre à jour le snapshot si demandé ou si c'est le premier
                 if (updateSnapshot || !hasSnapshot) {
-                    db.saveSnapshot(user.discordId, currentRank.tier, currentRank.rank, currentRank.lp);
+                    db.saveSnapshot(user.puuid, user.discordId, currentRank.tier, currentRank.rank, currentRank.lp);
                 }
 
             } catch (Exception e) {

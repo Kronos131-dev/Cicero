@@ -10,6 +10,8 @@ import org.example.service.ai.PromptRegistry;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.List;
+
 public class AnalyzeCommand implements SlashCommand {
 
     @Override
@@ -22,12 +24,15 @@ public class AnalyzeCommand implements SlashCommand {
     public void execute(SlashCommandInteractionEvent event, BotContext ctx) {
         event.deferReply().queue();
         String discordId = event.getUser().getId();
-        DatabaseManager.UserRecord user = ctx.db().getUser(discordId);
+        List<DatabaseManager.UserRecord> users = ctx.db().getUsers(discordId);
 
-        if (user == null) {
+        if (users.isEmpty()) {
             event.getHook().sendMessage("Tu n'as pas lié ton compte Riot ! Utilise la commande `/link` d'abord.").queue();
             return;
         }
+
+        // Pour l'instant, on prend le premier compte lié (TODO: Gérer le multi-compte dans l'UI)
+        DatabaseManager.UserRecord user = users.get(0);
 
         String userQuestion = event.getOption("question").getAsString();
 

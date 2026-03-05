@@ -54,6 +54,7 @@ public class MatchDataExtractor {
         public double laneGoldExpAdvantage;
         public double maxCsAdvantage;
         public int goldDiffAt14 = 0;
+        public int csAt14 = 0;
 
         // --- 💰 2. ÉCONOMIE & DÉGÂTS (Carrys) ---
         public double goldPerMinute;
@@ -253,11 +254,17 @@ public class MatchDataExtractor {
                                         pFrames.has(String.valueOf(bluePlayer.participantId)) &&
                                         pFrames.has(String.valueOf(redPlayer.participantId))) {
 
-                                    int blueGold = pFrames.getJSONObject(String.valueOf(bluePlayer.participantId)).optInt("totalGold", 0);
-                                    int redGold = pFrames.getJSONObject(String.valueOf(redPlayer.participantId)).optInt("totalGold", 0);
+                                    JSONObject bFrame = pFrames.getJSONObject(String.valueOf(bluePlayer.participantId));
+                                    JSONObject rFrame = pFrames.getJSONObject(String.valueOf(redPlayer.participantId));
+
+                                    int blueGold = bFrame.optInt("totalGold", 0);
+                                    int redGold = rFrame.optInt("totalGold", 0);
 
                                     bluePlayer.goldDiffAt14 = blueGold - redGold;
                                     redPlayer.goldDiffAt14 = redGold - blueGold;
+
+                                    bluePlayer.csAt14 = bFrame.optInt("minionsKilled", 0) + bFrame.optInt("jungleMinionsKilled", 0);
+                                    redPlayer.csAt14 = rFrame.optInt("minionsKilled", 0) + rFrame.optInt("jungleMinionsKilled", 0);
                                 }
                             }
                         }

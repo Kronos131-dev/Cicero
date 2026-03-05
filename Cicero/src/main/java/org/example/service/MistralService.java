@@ -31,15 +31,6 @@ public class MistralService {
     // ========================================================================
 
     /**
-     * NŒUD 3 : L'Agent Analyste.
-     * Il retourne un objet Java strict (MatchAnalysisResult) généré au format JSON par Mistral.
-     */
-    interface AnalystAgent {
-        @SystemMessage(PromptRegistry.PERFORMANCE_ANALYST_SYSTEM)
-        MatchAnalysisResult adjustScores(@UserMessage String matchData);
-    }
-
-    /**
      * NŒUD 4 : L'Agent Caster.
      * Il retourne un String texte formaté pour Discord.
      */
@@ -141,33 +132,10 @@ public class MistralService {
     // ========================================================================
 
     /**
-     * Étape 1 du Pipeline : Le Cerveau Analytique
-     */
-    public MatchAnalysisResult runPerformanceAnalyst(String enrichedMatchJson) {
-        logAgentTrace(PromptRegistry.PERFORMANCE_ANALYST_SYSTEM, "Input Data:\n" + enrichedMatchJson);
-
-        // Modèle spécifique très froid (0.3) pour la rigueur mathématique et le JSON
-        ChatModel analystModel = MistralAiChatModel.builder()
-                .apiKey(apiKey)
-                .modelName("mistral-large-latest")
-                .temperature(0.3)
-                .timeout(Duration.ofMinutes(5))
-                .build();
-
-        AnalystAgent agent = AiServices.builder(AnalystAgent.class)
-                .chatModel(analystModel)
-                .tools(tavilyService)
-                .build();
-
-        return agent.adjustScores(enrichedMatchJson);
-    }
-
-    /**
      * Étape 2 du Pipeline : La Plume Discord
      */
-    public String runPerformanceCaster(MatchAnalysisResult analystResult) {
-        String analystReportStr = analystResult.toString();
-        logAgentTrace(PromptRegistry.PERFORMANCE_CASTER_SYSTEM, "Analyst Data:\n" + analystReportStr);
+    public String runPerformanceCaster(String jsonPayload) {
+        logAgentTrace(PromptRegistry.PERFORMANCE_CASTER_SYSTEM, "Input Data:\n" + jsonPayload);
 
         // Modèle spécifique créatif (0.8) pour l'humour et le style
         ChatModel casterModel = MistralAiChatModel.builder()
@@ -181,7 +149,7 @@ public class MistralService {
                 .chatModel(casterModel)
                 .build();
 
-        String prompt = "Voici les ajustements techniques de l'analyste. Rédige les commentaires pour chaque joueur et renvoie un JSON final formaté comme une liste d'objets contenant les champs 'name', 'champion', 'role', 'team', 'score' (qui est la note ajustée) et 'comment'. Voici les données:\n" + analystReportStr;
+        String prompt = "Voici les données brutes du match. Rédige les commentaires pour chaque joueur et renvoie un JSON final formaté comme une liste d'objets contenant les champs 'champion' et 'comment'. Voici les données:\n" + jsonPayload;
         return agent.writeDiscordCommentary(prompt);
     }
 

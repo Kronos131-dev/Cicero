@@ -1,10 +1,12 @@
 package org.example.service.ai;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.List;
 
 public class Records {
     /**
      * L'objet exact que l'Agent Analyste DOIT nous retourner.
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record AnalystAdjustment(
             String champion,
             String role,
@@ -21,6 +23,7 @@ public class Records {
     /**
      * L'objet complet qui contiendra la liste des 10 joueurs analysés.
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record MatchAnalysisResult(
             List<AnalystAdjustment> adjustments
     ) {}

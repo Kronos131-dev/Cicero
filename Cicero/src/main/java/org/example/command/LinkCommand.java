@@ -37,10 +37,7 @@ public class LinkCommand implements SlashCommand {
                 // Sauvegarde du nouveau compte
                 ctx.db().saveUser(event.getUser().getId(), puuid, riotIdInput);
                 
-                // IMPORTANT : On efface l'historique de chat pour éviter les confusions avec l'ancien compte
-                ctx.db().clearChatHistory(event.getUser().getId());
-                
-                event.getHook().sendMessage("Compte lié avec succès : " + riotIdInput + " (Mémoire IA réinitialisée)").queue();
+                event.getHook().sendMessage("Compte lié avec succès : " + riotIdInput).queue();
             } catch (Exception e) {
                 e.printStackTrace();
                 event.getHook().sendMessage("Erreur lors de la liaison : " + e.getMessage()).queue();

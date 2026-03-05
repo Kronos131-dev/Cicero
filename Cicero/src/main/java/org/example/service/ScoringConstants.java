@@ -14,7 +14,7 @@ public final class ScoringConstants {
         public static final double BASE_SCORE = 50.0;
         public static final double BOUNTY_GOLD_BONUS_CAP = 15.0;
         public static final double BOUNTY_GOLD_DIVISOR = 60.0;
-        public static final double SOFT_CAP_THRESHOLD = 95.0;
+        public static final double SOFT_CAP_THRESHOLD = 105.0;
         public static final double SOFT_CAP_LOG_FACTOR = 5.0;
         public static final double MIN_SCORE = 0.0;
         public static final double MAX_SCORE = 150.0;
@@ -46,15 +46,17 @@ public final class ScoringConstants {
 
     public static final class Top {
         // Piliers
-        public static final double LANE_ECO_WEIGHT = 0.35;
-        public static final double COMBAT_WEIGHT = 0.30;
-        public static final double MACRO_CLASS_WEIGHT = 0.35;
+        public static final double EARLY_WEIGHT = 0.25;
+        public static final double COMBAT_WEIGHT = 0.25;
+        public static final double MACRO_WEIGHT = 0.25;
+        public static final double CLASS_WEIGHT = 0.25;
 
         // Pilier LANE_ECO
         public static final double CS_SCORE_WEIGHT = 0.50;
         public static final double GOLD_SCORE_WEIGHT = 0.50;
-        public static final double GOLD_SENSITIVITY = 2500.0;
+        public static final double GOLD_SENSITIVITY = 800.0;
         public static final double CS_SENSITIVITY = 20.0;
+        public static final double CS_AT_14_SENSITIVITY = 15.0;
 
         // Pilier COMBAT
         public static final double KP_SCORE_WEIGHT = 0.50;
@@ -106,15 +108,16 @@ public final class ScoringConstants {
 
     public static final class Jungle {
         // Piliers
-        public static final double PATHING_ECO_WEIGHT = 0.35;
-        public static final double IMPACT_WEIGHT = 0.35;
-        public static final double MACRO_CLASS_WEIGHT = 0.30;
+        public static final double EARLY_WEIGHT = 0.25;
+        public static final double COMBAT_WEIGHT = 0.25;
+        public static final double MACRO_WEIGHT = 0.25;
+        public static final double CLASS_WEIGHT = 0.25;
 
         // Pilier PATHING_ECO
         public static final double CS_SCORE_WEIGHT = 0.40;
         public static final double GOLD_SCORE_WEIGHT = 0.40;
         public static final double INVADE_WEIGHT = 0.20; // Added weight for invade
-        public static final double GOLD_SENSITIVITY = 600.0;
+        public static final double GOLD_SENSITIVITY = 800.0;
         public static final double CS_SENSITIVITY = 3.5;
         public static final double INVADE_EXPECTED = 5.0;
         public static final double INVADE_SENSITIVITY = 5.0;
@@ -175,13 +178,15 @@ public final class ScoringConstants {
 
     public static final class Mid {
         // Piliers
-        public static final double LANE_ECO_WEIGHT = 0.35;
-        public static final double COMBAT_WEIGHT = 0.30;
-        public static final double MACRO_CLASS_WEIGHT = 0.35;
+        public static final double EARLY_WEIGHT = 0.25;
+        public static final double COMBAT_WEIGHT = 0.25;
+        public static final double MACRO_WEIGHT = 0.25;
+        public static final double CLASS_WEIGHT = 0.25;
 
         // Pilier LANE_ECO
-        public static final double GOLD_SENSITIVITY = 600.0;
+        public static final double GOLD_SENSITIVITY = 800.0;
         public static final double CS_SENSITIVITY = 1.2;
+        public static final double CS_AT_14_SENSITIVITY = 15.0;
         
         public static final class Default {
             public static final double CS_SCORE_WEIGHT = 0.50;
@@ -271,15 +276,17 @@ public final class ScoringConstants {
 
     public static final class Adc {
         // Piliers
-        public static final double LANE_ECO_WEIGHT = 0.35;
-        public static final double COMBAT_WEIGHT = 0.35;
-        public static final double MACRO_SIEGE_WEIGHT = 0.30;
+        public static final double EARLY_WEIGHT = 0.25;
+        public static final double COMBAT_WEIGHT = 0.25;
+        public static final double MACRO_WEIGHT = 0.25;
+        public static final double CLASS_WEIGHT = 0.25;
 
         // Pilier LANE_ECO
         public static final double CS_SCORE_WEIGHT = 0.50;
         public static final double GOLD_SCORE_WEIGHT = 0.50;
-        public static final double GOLD_SENSITIVITY = 600.0;
+        public static final double GOLD_SENSITIVITY = 800.0;
         public static final double CS_SENSITIVITY = 1.2;
+        public static final double CS_AT_14_SENSITIVITY = 15.0;
 
         // Pilier COMBAT
         public static final double DPM_SCORE_WEIGHT = 0.50;
@@ -314,12 +321,13 @@ public final class ScoringConstants {
 
     public static final class Support {
         // Piliers
-        public static final double LANE_WEIGHT = 0.30;
-        public static final double IMPACT_WEIGHT = 0.35;
-        public static final double UTILITY_VISION_WEIGHT = 0.35;
+        public static final double EARLY_WEIGHT = 0.25;
+        public static final double COMBAT_WEIGHT = 0.25;
+        public static final double MACRO_WEIGHT = 0.25;
+        public static final double CLASS_WEIGHT = 0.25;
 
         // Pilier LANE
-        public static final double GOLD_SENSITIVITY = 600.0;
+        public static final double GOLD_SENSITIVITY = 800.0;
 
         // Pilier IMPACT
         public static final double KP_SCORE_WEIGHT = 0.6;

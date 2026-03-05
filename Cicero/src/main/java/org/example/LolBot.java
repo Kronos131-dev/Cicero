@@ -36,9 +36,10 @@ public class LolBot extends ListenerAdapter {
         // Gestionnaire de commandes
         CommandManager commandManager = new CommandManager(context);
         commandManager.addCommand(new LinkCommand());
+        commandManager.addCommand(new UnlinkCommand());
         commandManager.addCommand(new AnalyzeCommand());
         commandManager.addCommand(new LeaderboardCommand());
-        commandManager.addCommand(new RankCommand());
+        commandManager.addCommand(new ProfileCommand());
         commandManager.addCommand(new AskCommand());
         commandManager.addCommand(new NewAskCommand());
         commandManager.addCommand(new HelpCommand());
@@ -88,7 +89,16 @@ public class LolBot extends ListenerAdapter {
             String gameName = user[1];
             String tagLine = user[2];
 
-            if (db.getUser(discordId) == null) {
+            // On vérifie si l'utilisateur a déjà ce compte lié
+            boolean alreadyLinked = false;
+            for (DatabaseManager.UserRecord record : db.getUsers(discordId)) {
+                if (record.summonerName.equalsIgnoreCase(gameName + "#" + tagLine)) {
+                    alreadyLinked = true;
+                    break;
+                }
+            }
+
+            if (!alreadyLinked) {
                 System.out.println("Injection de " + gameName + "#" + tagLine + "...");
                 String puuid = riotService.getPuuid(gameName, tagLine);
                 if (puuid != null && !puuid.startsWith("Error")) {

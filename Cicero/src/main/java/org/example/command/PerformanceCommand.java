@@ -32,8 +32,9 @@ public class PerformanceCommand implements SlashCommand {
 
     @Override
     public CommandData getCommandData() {
-        return Commands.slash("performance", "Analyse les performances des 10 joueurs et sauvegarde l'audit.")
-                .addOption(OptionType.USER, "joueur", "Le joueur ciblé (optionnel)", false);
+        return Commands.slash("performance", "Analyse les performances d'un compte.")
+                .addOption(OptionType.USER, "joueur", "Le joueur ciblé (optionnel)", false)
+                .addOption(OptionType.INTEGER, "compte", "Numéro du compte (1 pour le main, 2 pour le 1er smurf...)", false);
     }
 
     @Override
@@ -44,27 +45,38 @@ public class PerformanceCommand implements SlashCommand {
         OptionMapping option = event.getOption("joueur");
         if (option != null) targetUser = option.getAsUser();
 
-        DatabaseManager.UserRecord dbUser = ctx.db().getUser(targetUser.getId());
-
-        if (dbUser == null) {
-            event.getHook().sendMessage("❌ Compte Riot non lié.").queue();
+        java.util.List<DatabaseManager.UserRecord> accounts = ctx.db().getUsers(targetUser.getId());
+        if (accounts.isEmpty()) {
+            event.getHook().sendMessage("❌ Aucun compte Riot lié.").queue();
             return;
+        }
+        
+        DatabaseManager.UserRecord dbUser = accounts.get(0); // Par défaut, le 1er compte lié
+        OptionMapping compteOpt = event.getOption("compte");
+        if (compteOpt != null) {
+            int index = compteOpt.getAsInt() - 1;
+            if (index >= 0 && index < accounts.size()) dbUser = accounts.get(index);
+            else {
+                event.getHook().sendMessage("❌ Compte introuvable. Ce joueur n'a que " + accounts.size() + " compte(s).").queue();
+                return;
+            }
         }
 
         User finalTargetUser = targetUser;
+        DatabaseManager.UserRecord finalDbUser = dbUser;
 
         ctx.executor().submit(() -> {
             try {
-                String lastMatchId = ctx.riotService().getLastMatchId(dbUser.puuid, dbUser.region);
-                String matchJsonStr = ctx.riotService().getMatchAnalysis(lastMatchId, dbUser.puuid, dbUser.region);
+                String lastMatchId = ctx.riotService().getLastMatchId(finalDbUser.puuid, finalDbUser.region);
+                String matchJsonStr = ctx.riotService().getMatchAnalysis(lastMatchId, finalDbUser.puuid, finalDbUser.region);
                 JSONObject fullMatchData = new JSONObject(matchJsonStr);
 
                 // CORRECTION ICI : Utilisation de FullContext
-                MatchDataExtractor.FullContext fullContext = ctx.riotService().getMatchContext(lastMatchId, dbUser.region);
+                MatchDataExtractor.FullContext fullContext = ctx.riotService().getMatchContext(lastMatchId, finalDbUser.region);
                 Map<String, MatchDataExtractor.PlayerContext> globalContext = fullContext.players;
                 MatchDataExtractor.TeamCompositionProfile enemyComp = fullContext.redTeamComp; // Par défaut
 
-                RiotService.RankInfo rankInfo = ctx.riotService().getRank(dbUser.puuid, dbUser.region);
+                RiotService.RankInfo rankInfo = ctx.riotService().getRank(finalDbUser.puuid, finalDbUser.region);
                 String gameTier = (rankInfo != null && rankInfo.tier != null) ? rankInfo.tier : "GOLD";
                 JSONObject benchmarks = ctx.benchmarkService().getBenchmarks();
                 double durationMin = fullMatchData.getJSONObject("metadata").optLong("duration_sec", 1800) / 60.0;
@@ -119,22 +131,31 @@ public class PerformanceCommand implements SlashCommand {
                     ctx.executor().submit(() -> {
                         try {
                             JSONObject aiPayload = new JSONObject().put("match_duration", durationMin).put("players", playersToAnalyze);
-
-                            MatchAnalysisResult analystResult = ctx.mistralService().runPerformanceAnalyst(aiPayload.toString());
-                            Map<String, AnalystAdjustment> adjMap = new HashMap<>();
-                            for(AnalystAdjustment adj : analystResult.adjustments()) {
-                                JSONObject p = javaPlayerMap.get(adj.champion().toUpperCase());
-                                if(p != null) p.put("score", adj.adjusted_score());
-                                adjMap.put(adj.champion().toUpperCase(), adj);
-                            }
-
-                            String casterJson = ctx.mistralService().runPerformanceCaster(analystResult);
+                            // Appel direct au Commentateur (plus d'Analyste)
+                            String casterJson = ctx.mistralService().runPerformanceCaster(aiPayload.toString());
                             JSONArray casterComments = new JSONArray(casterJson.replace("```json", "").replace("```", "").trim());
 
                             for (int i = 0; i < casterComments.length(); i++) {
                                 JSONObject c = casterComments.getJSONObject(i);
-                                JSONObject p = javaPlayerMap.get(c.getString("champion").toUpperCase());
-                                if(p != null) p.put("comment", c.optString("comment", "Sans commentaire."));
+                                String aiChampName = c.getString("champion").toUpperCase().trim();
+                                
+                                // Normalisation des noms problématiques
+                                if (aiChampName.equals("WUKONG")) aiChampName = "MONKEYKING";
+                                if (aiChampName.equals("RENATA GLASC")) aiChampName = "RENATA";
+                                if (aiChampName.equals("NUNU & WILLUMP")) aiChampName = "NUNU";
+                                
+                                JSONObject p = javaPlayerMap.get(aiChampName);
+                                if(p != null) {
+                                    p.put("comment", c.optString("comment", "Sans commentaire."));
+                                } else {
+                                    // Fallback de sécurité : on cherche si le nom de l'IA est contenu dans un nom de champion
+                                    for (String realName : javaPlayerMap.keySet()) {
+                                        if (realName.contains(aiChampName) || aiChampName.contains(realName)) {
+                                            javaPlayerMap.get(realName).put("comment", c.optString("comment", "Sans commentaire."));
+                                            break;
+                                        }
+                                    }
+                                }
                             }
 
                             StringBuilder audit = new StringBuilder();
@@ -180,15 +201,7 @@ public class PerformanceCommand implements SlashCommand {
                                         audit.append("  - INFO MACRO : ").append(macroInfos.getString(j)).append("\n");
                                     }
                                 }
-                                AnalystAdjustment adj = adjMap.get(champ);
-                                if (adj != null) {
-                                    audit.append("\n--- 🧠 L'ANALYSTE (Vision Macro) ---\n");
-                                    audit.append("Note Ajustée : ").append(adj.adjusted_score()).append("/100\n");
-                                    audit.append("Contexte : ").append(adj.external_context_used()).append("\n");
-                                    audit.append("Audit : ").append(adj.timeline_audit()).append("\n");
-                                    audit.append("Padding Check : ").append(adj.stat_padding_check()).append("\n");
-                                    audit.append("Raisonnement : ").append(adj.analyst_reasoning()).append("\n");
-                                }
+
                                 audit.append("\n--- 🎙️ LE COMMENTATEUR ---\n\"").append(p.getString("comment")).append("\"\n\n");
                             }
 

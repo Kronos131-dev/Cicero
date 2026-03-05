@@ -46,8 +46,10 @@ public class AskCommand implements SlashCommand {
                 // pour éviter que l'agent n'ait à appeler les outils (ce qui semble échouer parfois).
                 if (isAskingAboutLastGame(question)) {
                     // Cas 1 : L'utilisateur parle de SA propre game ("ma game")
-                    DatabaseManager.UserRecord user = ctx.db().getUser(discordId);
-                    if (user != null) {
+                    List<DatabaseManager.UserRecord> users = ctx.db().getUsers(discordId);
+                    if (!users.isEmpty()) {
+                        // TODO: Gérer le multi-compte proprement, pour l'instant on prend le premier
+                        DatabaseManager.UserRecord user = users.get(0);
                         injectMatchData(ctx, user.puuid, user.region, question, fullContext);
                     }
                 } else if (!payload.targets().isEmpty() && isAskingAboutTargetGame(question)) {
