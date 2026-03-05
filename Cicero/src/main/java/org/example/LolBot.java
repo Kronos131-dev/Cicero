@@ -72,8 +72,8 @@ public class LolBot extends ListenerAdapter {
 
     private static void injectDefaultUsers(DatabaseManager db, RiotService riotService) {
         String[][] defaultUsers = {
-            {"384388224912719874", "Yvaint", "FDC"},
-            {"1182366478691991653", "RUSHCIEL", "CIEL"},
+            {"384388224912719874", "Yvain", "FDC"},
+            {"1182366478691991653", "Noe", "叶秋枫"},
             {"203249597169008640", "FDC Adrisir", "0059"},
             {"321614400677216257", "Hakuryuu974", "EUW"},
             {"311532666044416000", "THE PGM OF KFC", "EUW"},

@@ -39,6 +39,7 @@ public class RankUtils {
     }
 
     public static int calculateEloScore(String tier, String rank, int lp) {
+        if (tier == null) return 0;
         int baseScore = 0;
         switch (tier.toUpperCase()) {
             case "IRON": baseScore = 0; break;
@@ -48,14 +49,15 @@ public class RankUtils {
             case "PLATINUM": baseScore = 1600; break;
             case "EMERALD": baseScore = 2000; break;
             case "DIAMOND": baseScore = 2400; break;
-            case "MASTER": baseScore = 2800; break;
-            case "GRANDMASTER": baseScore = 3200; break;
-            case "CHALLENGER": baseScore = 3600; break;
-            default: return -1;
+            case "MASTER":
+            case "GRANDMASTER":
+            case "CHALLENGER":
+                baseScore = 2800; break;
+            default: return 0;
         }
         int divisionScore = 0;
         if (baseScore < 2800) {
-            switch (rank) {
+            switch (rank.toUpperCase()) {
                 case "I": divisionScore = 300; break;
                 case "II": divisionScore = 200; break;
                 case "III": divisionScore = 100; break;

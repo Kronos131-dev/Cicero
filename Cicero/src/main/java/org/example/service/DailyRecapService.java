@@ -296,14 +296,16 @@ public class DailyRecapService {
                 // 2. Récupérer le snapshot précédent
                 DatabaseManager.SnapshotRecord snapshot = db.getSnapshot(user.discordId);
                 
-                // Calcul des LP gagnés/perdus
+                // Calcul des LP gagnés/perdus avec l'Elo Absolu
                 int lpDiff = 0;
                 boolean sameTierRank = false;
                 boolean hasSnapshot = (snapshot != null);
-                
                 if (hasSnapshot) {
+                    int oldElo = RankUtils.calculateEloScore(snapshot.tier, snapshot.rank, snapshot.lp);
+                    int newElo = RankUtils.calculateEloScore(currentRank.tier, currentRank.rank, currentRank.lp);
+                    lpDiff = newElo - oldElo;
+
                     if (currentRank.tier.equals(snapshot.tier) && currentRank.rank.equals(snapshot.rank)) {
-                        lpDiff = currentRank.lp - snapshot.lp;
                         sameTierRank = true;
                     }
                 }
@@ -446,12 +448,13 @@ public class DailyRecapService {
             
             String lpString = "";
             if (data.hasSnapshot) {
-                if (data.sameTierRank) {
-                    if (data.lpDiff > 0) lpString = " `+" + data.lpDiff + " LP` 📈";
-                    else if (data.lpDiff < 0) lpString = " `" + data.lpDiff + " LP` 📉";
-                    else lpString = " `0 LP` ➖";
-                } else {
-                    lpString = " `Rang modifié` 🔄";
+                if (data.lpDiff > 0) lpString = " `+" + data.lpDiff + " LP` 📈";
+                else if (data.lpDiff < 0) lpString = " `" + data.lpDiff + " LP` 📉";
+                else lpString = " `0 LP` ➖";
+                
+                // On signale si la division a changé en plus du delta de LP
+                if (!data.sameTierRank) {
+                     lpString += " *(Rang Modifié)*";
                 }
             } else {
                 lpString = " `Nouveau suivi` 🆕";
@@ -485,7 +488,10 @@ public class DailyRecapService {
         // Affichage du MVP
         if (mvpUser != null) {
             sb.append("\n\n🏆 **LE MVP DU JOUR** 🏆\n");
-            sb.append("Félicitations à **").append(mvpUser.user.summonerName).append("** qui domine le serveur aujourd'hui avec un MVP Score de **").append(String.format("%.1f", bestMvpScore)).append("** !");
+            sb.append("Félicitations à **").append(mvpUser.user.summonerName).append("** qui domine le serveur aujourd'hui !\n");
+            sb.append("> *Score MVP : **").append(String.format("%.1f", bestMvpScore)).append("** ");
+            sb.append("(Note IA: ").append(String.format("%.1f", mvpUser.averageScore)).append(" x 0.6 | ");
+            sb.append("WR: ").append(mvpUser.getWinrate()).append("% x 0.3 | Volume: +").append(Math.min(mvpUser.getTotalGames(), 5) * 2).append(" pts)*");
         }
 
         if (sb.length() > 0) {

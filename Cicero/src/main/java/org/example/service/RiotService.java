@@ -606,7 +606,8 @@ public class RiotService {
             long startTimeSec = (System.currentTimeMillis() - (24 * 60 * 60 * 1000)) / 1000;
             String continent = getMatchRegion(region);
             
-            String url = "https://" + continent + ".api.riotgames.com/lol/match/v5/matches/by-puuid/" + puuid.trim() + "/ids?startTime=" + startTimeSec + "&count=20";
+            // Ajout de &queue=420 pour filtrer strictement la Solo/DuoQ
+            String url = "https://" + continent + ".api.riotgames.com/lol/match/v5/matches/by-puuid/" + puuid.trim() + "/ids?startTime=" + startTimeSec + "&queue=" + QUEUE_SOLOQ + "&count=20";
             
             JSONArray matches = executeRequestArray(url);
             List<String> ids = new ArrayList<>();
