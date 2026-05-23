@@ -67,7 +67,6 @@ public class PerformanceTestCommand implements SlashCommand {
 
                     RiotService.RankInfo rankInfo = ctx.riotService().getRank(user.puuid, user.region);
                     String gameTier = (rankInfo != null && rankInfo.tier != null) ? rankInfo.tier : "GOLD";
-                    JSONObject benchmarks = ctx.benchmarkService().getBenchmarks();
                     double durationMin = fullMatchData.getJSONObject("metadata").optLong("duration_sec", 1800) / 60.0;
 
                     JSONArray playersToAnalyze = new JSONArray();
@@ -97,7 +96,7 @@ public class PerformanceTestCommand implements SlashCommand {
                         }
 
                         // Appel avec la nouvelle signature (ajout de enemyComp)
-                        JSONObject mathResult = ScoreCalculator.analyzePlayer(p, benchmarks, gameTier, durationMin, pCtx, oppCtx, enemyComp);
+                        JSONObject mathResult = ScoreCalculator.analyzePlayer(p, gameTier, durationMin, pCtx, oppCtx, enemyComp);
                         p.put("ai_context", mathResult);
                         p.put("score", mathResult.getInt("math_score"));
                         p.put("comment", "Note Mathématique Pure");

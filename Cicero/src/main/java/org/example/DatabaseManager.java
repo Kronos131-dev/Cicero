@@ -27,7 +27,7 @@ public class DatabaseManager {
     private void createTables() {
         String sqlUsersV2 = "CREATE TABLE IF NOT EXISTS users_v2 (riot_puuid TEXT PRIMARY KEY, discord_id TEXT NOT NULL, summoner_name TEXT NOT NULL, region TEXT DEFAULT 'euw1', last_audit TEXT);";
         String sqlSnapshotsV2 = "CREATE TABLE IF NOT EXISTS user_snapshots_v2 (riot_puuid TEXT PRIMARY KEY, discord_id TEXT NOT NULL, tier TEXT, rank TEXT, lp INTEGER, timestamp INTEGER);";
-        String sqlDailyV2 = "CREATE TABLE IF NOT EXISTS daily_performances_v2 (riot_puuid TEXT, discord_id TEXT, date TEXT, games_played INTEGER, wins INTEGER, average_score REAL, lp_diff INTEGER, mvp_score REAL, ai_summary TEXT, PRIMARY KEY(riot_puuid, date));";
+        String sqlDailyV2 = "CREATE TABLE IF NOT EXISTS daily_performances_v2 (riot_puuid TEXT, discord_id TEXT, date TEXT, games_played INTEGER, wins INTEGER, average_score REAL, lp_diff INTEGER, mvp_score REAL, ai_summary TEXT, daily_details TEXT, PRIMARY KEY(riot_puuid, date));";
         
         try (Connection conn = this.connect(); Statement stmt = conn.createStatement()) {
             // Création V2
@@ -38,8 +38,12 @@ public class DatabaseManager {
             // Migration des anciennes données (Ignore si déjà fait)
             try { stmt.execute("INSERT OR IGNORE INTO users_v2 SELECT riot_puuid, discord_id, summoner_name, region, last_audit FROM users;"); } catch (Exception ignored) {}
             try { stmt.execute("INSERT OR IGNORE INTO user_snapshots_v2 SELECT u.riot_puuid, s.discord_id, s.tier, s.rank, s.lp, s.timestamp FROM user_snapshots s JOIN users u ON s.discord_id = u.discord_id;"); } catch (Exception ignored) {}
-            try { stmt.execute("INSERT OR IGNORE INTO daily_performances_v2 SELECT u.riot_puuid, d.discord_id, d.date, d.games_played, d.wins, d.average_score, d.lp_diff, d.mvp_score, d.ai_summary FROM daily_performances d JOIN users u ON d.discord_id = u.discord_id;"); } catch (Exception ignored) {}
+            try { stmt.execute("INSERT OR IGNORE INTO daily_performances_v2 SELECT u.riot_puuid, d.discord_id, d.date, d.games_played, d.wins, d.average_score, d.lp_diff, d.mvp_score, d.ai_summary, NULL FROM daily_performances d JOIN users u ON d.discord_id = u.discord_id;"); } catch (Exception ignored) {}
             
+            // Ajout de la colonne daily_details si elle n'existe pas (pour les mises à jour)
+            try { stmt.execute("ALTER TABLE daily_performances ADD COLUMN daily_details TEXT"); } catch (SQLException ignored) {}
+            try { stmt.execute("ALTER TABLE daily_performances_v2 ADD COLUMN daily_details TEXT"); } catch (SQLException ignored) {}
+
             // Les autres tables (sessions, config) ne changent pas
             stmt.execute("CREATE TABLE IF NOT EXISTS chat_sessions (discord_id TEXT PRIMARY KEY, history TEXT NOT NULL, last_updated INTEGER NOT NULL);");
             stmt.execute("CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT);");
@@ -292,8 +296,8 @@ public class DatabaseManager {
     }
 
     // --- GESTION DAILY PERFORMANCES ---
-    public synchronized void saveDailyPerformance(String puuid, String discordId, String date, int gamesPlayed, int wins, double averageScore, int lpDiff, double mvpScore, String aiSummary) {
-        String sql = "INSERT OR REPLACE INTO daily_performances_v2(riot_puuid, discord_id, date, games_played, wins, average_score, lp_diff, mvp_score, ai_summary) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    public synchronized void saveDailyPerformance(String puuid, String discordId, String date, int gamesPlayed, int wins, double averageScore, int lpDiff, double mvpScore, String aiSummary, String dailyDetails) {
+        String sql = "INSERT OR REPLACE INTO daily_performances_v2(riot_puuid, discord_id, date, games_played, wins, average_score, lp_diff, mvp_score, ai_summary, daily_details) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, puuid);
@@ -305,6 +309,7 @@ public class DatabaseManager {
             pstmt.setInt(7, lpDiff);
             pstmt.setDouble(8, mvpScore);
             pstmt.setString(9, aiSummary);
+            pstmt.setString(10, dailyDetails);
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println("Erreur sauvegarde daily performance: " + e.getMessage());
@@ -368,6 +373,63 @@ public class DatabaseManager {
             System.out.println("Erreur getPlayerPeriodStats: " + e.getMessage());
         }
         return null;
+    }
+    
+    // Nouvelle méthode pour récupérer les stats d'un COMPTE SPÉCIFIQUE (pour filtrer les smurfs)
+    public PeriodStats getAccountPeriodStats(String puuid, String fromDateString) {
+        String sql = "SELECT SUM(games_played) as total_games, SUM(wins) as total_wins, " +
+                     "AVG(CASE WHEN mvp_score > 0 THEN average_score ELSE NULL END) as avg_score, " +
+                     "AVG(CASE WHEN mvp_score > 0 THEN mvp_score ELSE NULL END) as avg_mvp " +
+                     "FROM daily_performances_v2 WHERE riot_puuid = ? AND date >= ?";
+        try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, puuid);
+            pstmt.setString(2, fromDateString);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next() && rs.getInt("total_games") > 0) {
+                PeriodStats stats = new PeriodStats();
+                stats.totalGames = rs.getInt("total_games");
+                stats.totalWins = rs.getInt("total_wins");
+                stats.avgScore = rs.getDouble("avg_score");
+                stats.avgMvpScore = rs.getDouble("avg_mvp");
+                return stats;
+            }
+        } catch (SQLException e) {
+            System.out.println("Erreur getAccountPeriodStats: " + e.getMessage());
+        }
+        return null;
+    }
+
+    public String getPeriodNarrativeContext(String discordId, String fromDateString) {
+        StringBuilder narrative = new StringBuilder();
+        // Utilise la bonne table (v2 ou v1) selon ce qui est actif
+        String sql = "SELECT date, wins, games_played, average_score, daily_details FROM daily_performances_v2 WHERE discord_id = ? AND date >= ? ORDER BY date ASC";
+        
+        try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, discordId);
+            pstmt.setString(2, fromDateString);
+            ResultSet rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                int games = rs.getInt("games_played");
+                if (games == 0) continue;
+                
+                String date = rs.getString("date");
+                int wins = rs.getInt("wins");
+                double score = rs.getDouble("average_score");
+                String details = rs.getString("daily_details");
+                
+                narrative.append("- Date: ").append(date)
+                         .append(" | Bilan: ").append(wins).append("W/").append(games - wins).append("L")
+                         .append(" | Note moyenne: ").append(String.format("%.1f", score)).append("/100\n");
+                
+                if (details != null && !details.isEmpty()) {
+                    narrative.append("  Détails: ").append(details).append("\n");
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("Erreur getPeriodNarrativeContext: " + e.getMessage());
+        }
+        return narrative.toString();
     }
 
     public static class UserRecord {

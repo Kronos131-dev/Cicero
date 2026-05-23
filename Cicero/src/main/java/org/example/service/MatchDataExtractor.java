@@ -43,6 +43,7 @@ public class MatchDataExtractor {
         public String role;
         public int teamId;
         public boolean win;
+        public List<Integer> itemIds = new ArrayList<>();
 
         // --- BASIQUES ---
         public int kills, deaths, assists;
@@ -55,6 +56,7 @@ public class MatchDataExtractor {
         public double maxCsAdvantage;
         public int goldDiffAt14 = 0;
         public int csAt14 = 0;
+        public int goldAt14 = 0;
 
         // --- 💰 2. ÉCONOMIE & DÉGÂTS (Carrys) ---
         public double goldPerMinute;
@@ -179,6 +181,14 @@ public class MatchDataExtractor {
                 ctx.teamId = p.getInt("teamId");
                 ctx.win = p.getBoolean("win");
 
+                // Extraction des items
+                for (int j = 0; j <= 6; j++) {
+                    int itemId = p.optInt("item" + j, 0);
+                    if (itemId > 0) {
+                        ctx.itemIds.add(itemId);
+                    }
+                }
+
                 // Basiques
                 ctx.kills = p.optInt("kills");
                 ctx.deaths = p.optInt("deaths");
@@ -259,6 +269,9 @@ public class MatchDataExtractor {
 
                                     int blueGold = bFrame.optInt("totalGold", 0);
                                     int redGold = rFrame.optInt("totalGold", 0);
+
+                                    bluePlayer.goldAt14 = blueGold;
+                                    redPlayer.goldAt14 = redGold;
 
                                     bluePlayer.goldDiffAt14 = blueGold - redGold;
                                     redPlayer.goldDiffAt14 = redGold - blueGold;

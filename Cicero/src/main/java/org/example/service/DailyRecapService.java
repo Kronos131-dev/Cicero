@@ -26,6 +26,10 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -36,7 +40,7 @@ public class DailyRecapService {
     private final JDA jda;
     private final MistralService mistralService;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(3);
-    private JSONObject benchmarks;
+    // private JSONObject benchmarks; (not needed anymore)
 
     private static final String RECAP_BANNER = "https://images.contentstack.io/v3/assets/blt731acb42bb3d1659/bltacc406a1643cf5cd/5e98753f18a3221d65d69303/2020_Worlds_Trophy_Header.jpg";
     private static final String ROLE_WEEKLY_MVP = "1468270322061938769";
@@ -47,7 +51,7 @@ public class DailyRecapService {
         this.riotService = riotService;
         this.jda = jda;
         this.mistralService = mistralService;
-        loadBenchmarks();
+        // loadBenchmarks(); (not needed anymore)
         scheduleDailyRecap();
         
         // --- TEST AU DÉMARRAGE ---
@@ -95,21 +99,6 @@ public class DailyRecapService {
                 e.printStackTrace();
             }
         }).start();
-    }
-
-    private void loadBenchmarks() {
-        try (InputStream is = getClass().getResourceAsStream("/benchmarks.json")) {
-            if (is == null) {
-                System.err.println("Impossible de charger benchmarks.json");
-                this.benchmarks = new JSONObject();
-                return;
-            }
-            String jsonText = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            this.benchmarks = new JSONObject(jsonText);
-        } catch (Exception e) {
-            System.err.println("Erreur chargement benchmarks: " + e.getMessage());
-            this.benchmarks = new JSONObject();
-        }
     }
 
     private void scheduleDailyRecap() {
@@ -171,22 +160,71 @@ public class DailyRecapService {
     }
 
     private void processPeriodMVP(TextChannel channel, String fromDate, String roleId, String periodName) {
-        List<String> winners = db.getBestPlayersOfPeriod(fromDate);
-        if (winners.isEmpty()) {
-            // Pour le test, on peut vouloir savoir s'il n'y a pas de gagnant
+        // Nouvelle logique : on récupère tous les utilisateurs, on identifie leur "Main Account" (plus haut élo actuel),
+        // et on calcule le score MVP sur ce compte uniquement.
+        
+        Map<String, List<DatabaseManager.UserRecord>> usersMap = db.getAllUsersGrouped();
+        String bestDiscordId = null;
+        double bestMvpScore = -1.0;
+        
+        // Structure pour stocker les stats du gagnant potentiel
+        DatabaseManager.PeriodStats bestStats = null;
+
+        for (Map.Entry<String, List<DatabaseManager.UserRecord>> entry : usersMap.entrySet()) {
+            String discordId = entry.getKey();
+            List<DatabaseManager.UserRecord> accounts = entry.getValue();
+            
+            // 1. Identifier le Main Account (Plus haut Elo actuel via Snapshot récent ou Rank actuel)
+            DatabaseManager.UserRecord mainAccount = null;
+            int highestElo = -1;
+            
+            for (DatabaseManager.UserRecord acc : accounts) {
+                // On regarde le snapshot le plus récent pour estimer l'elo
+                // Note : Idéalement on ferait un appel Riot, mais pour éviter le rate limit de masse ici, on se base sur le snapshot quotidien sauvegardé en base
+                // Si pas de snapshot, on ignore ou on prend par défaut le 1er.
+                DatabaseManager.SnapshotRecord snap = db.getSnapshot(acc.puuid);
+                int elo = 0;
+                if (snap != null) {
+                    elo = RankUtils.calculateEloScore(snap.tier, snap.rank, snap.lp);
+                }
+                
+                if (elo > highestElo) {
+                    highestElo = elo;
+                    mainAccount = acc;
+                }
+            }
+            
+            if (mainAccount == null && !accounts.isEmpty()) mainAccount = accounts.get(0); // Fallback
+            if (mainAccount == null) continue;
+
+            // 2. Récupérer les stats de ce compte sur la période
+            DatabaseManager.PeriodStats stats = db.getAccountPeriodStats(mainAccount.puuid, fromDate);
+            if (stats != null && stats.totalGames > 0) {
+                // Calcul du score MVP (Formule standard)
+                double winrate = (double)stats.totalWins / stats.totalGames * 100.0;
+                double mvpScore = (stats.avgScore * 0.60) + (winrate * 0.30) + (Math.min(stats.totalGames, 20) * 2.0); // Cap volume plus haut pour hebdo/mensuel ? Laissons 20 pour l'instant.
+                
+                if (mvpScore > bestMvpScore) {
+                    bestMvpScore = mvpScore;
+                    bestDiscordId = discordId;
+                    bestStats = stats;
+                }
+            }
+        }
+
+        if (bestDiscordId == null) {
             if (periodName.contains("(TEST)")) {
                 channel.sendMessage("⚠️ Pas de données suffisantes pour élire le MVP de " + periodName).queue();
             }
             return;
         }
 
+        // --- Attribution du rôle et Annonce ---
+        
         Guild guild = channel.getGuild();
         Role role = guild.getRoleById(roleId);
         if (role == null) {
             System.out.println("Rôle introuvable : " + roleId);
-            if (periodName.contains("(TEST)")) {
-                channel.sendMessage("⚠️ Rôle introuvable pour le test : " + roleId).queue();
-            }
             return;
         }
 
@@ -197,39 +235,35 @@ public class DailyRecapService {
             }
         });
 
-        // Attribution aux gagnants et préparation de l'annonce
-        // On prend le premier gagnant (le meilleur) pour l'annonce principale
-        String discordId = winners.get(0);
-        
-        guild.retrieveMemberById(discordId).queue(
+        String finalDiscordId = bestDiscordId;
+        DatabaseManager.PeriodStats finalStats = bestStats;
+
+        guild.retrieveMemberById(finalDiscordId).queue(
             member -> {
                 guild.addRoleToMember(member, role).queue();
                 
-                // Récupération des stats pour l'IA
-                DatabaseManager.PeriodStats stats = db.getPlayerPeriodStats(discordId, fromDate);
-                String aiSummary = "Un règne sans partage et une domination absolue !"; // Fallback
-                if (stats != null) {
-                    int winrate = (int) Math.round((stats.totalWins / (double) stats.totalGames) * 100);
-                    String context = "Période: " + periodName + " | Joueur: " + member.getEffectiveName() + 
-                                     " | Games: " + stats.totalGames + " (" + winrate + "% WR) | Note Moyenne IA: " + 
-                                     String.format("%.1f", stats.avgScore) + "/100 | Score MVP: " + String.format("%.1f", stats.avgMvpScore);
-                    
-                    // APPEL À L'IA
-                    try {
-                        aiSummary = mistralService.runPeriodMvpChronicler(context);
-                    } catch (Exception e) {
-                        System.err.println("Erreur IA MVP: " + e.getMessage());
-                    }
+                int winrate = (int) Math.round((finalStats.totalWins / (double) finalStats.totalGames) * 100);
+                String narrativeLog = db.getPeriodNarrativeContext(finalDiscordId, fromDate);
+                
+                String context = "Période: " + periodName + " | Joueur: " + member.getEffectiveName() + 
+                                 " | Games: " + finalStats.totalGames + " (" + winrate + "% WR) | Note Moyenne: " + 
+                                 String.format("%.1f", finalStats.avgScore) + "/100\n\n" +
+                                 "=== JOURNAL DE BORD DÉTAILLÉ ===\n" + narrativeLog;
+                
+                String aiSummary = "Un règne sans partage et une domination absolue !";
+                try {
+                    aiSummary = mistralService.runPeriodMvpChronicler(context);
+                } catch (Exception e) {
+                    System.err.println("Erreur IA MVP: " + e.getMessage());
                 }
 
                 // Construction de l'Embed
                 EmbedBuilder eb = new EmbedBuilder();
                 eb.setTitle("🏆 JOUEUR DE " + periodName + " 🏆");
                 eb.setColor(new Color(255, 215, 0)); // Doré
-                eb.setDescription("Félicitations à <@" + discordId + "> qui est élu meilleur joueur de " + periodName.toLowerCase() + " !\n\n" +
+                eb.setDescription("Félicitations à <@" + finalDiscordId + "> qui est élu meilleur joueur de " + periodName.toLowerCase() + " !\n\n" +
                 "📜 Le mot du Chroniqueur :\n*" + aiSummary + "*");
 
-                // Ajout de l'image depuis les ressources (JDA gérera la fermeture du flux)
                 InputStream is = getClass().getResourceAsStream("/banniere.jpg");
                 if (is != null) {
                     eb.setImage("attachment://banniere.jpg");
@@ -237,12 +271,11 @@ public class DailyRecapService {
                            .addFiles(net.dv8tion.jda.api.utils.FileUpload.fromData(is, "banniere.jpg"))
                            .queue();
                 } else {
-                    System.err.println("Image introuvable dans le classpath : /banniere.jpg");
                     eb.setImage("https://media.giphy.com/media/l0HlHJGHe3yAMhdQY/giphy.gif"); // Fallback
                     channel.sendMessageEmbeds(eb.build()).queue();
                 }
             },
-            error -> System.out.println("Membre introuvable pour attribution rôle : " + discordId)
+            error -> System.out.println("Membre introuvable pour attribution rôle : " + finalDiscordId)
         );
     }
 
@@ -270,8 +303,8 @@ public class DailyRecapService {
             }
         }
 
-        List<DatabaseManager.UserRecord> users = db.getAllUsers();
-        if (users.isEmpty()) return;
+        Map<String, List<DatabaseManager.UserRecord>> usersMap = db.getAllUsersGrouped();
+        if (usersMap.isEmpty()) return;
 
         EmbedBuilder embed = new EmbedBuilder();
         embed.setTitle("📅 RÉCAPITULATIF QUOTIDIEN");
@@ -281,217 +314,308 @@ public class DailyRecapService {
         embed.setFooter("Mis à jour à l'instant • Cicero Bot");
         embed.setTimestamp(java.time.Instant.now());
 
-        List<UserRecapData> recapList = new ArrayList<>();
+        List<UserGroupRecap> groups = new ArrayList<>();
         String todayDateString = ZonedDateTime.now(ZoneId.of("Europe/Paris")).format(DateTimeFormatter.ISO_LOCAL_DATE);
 
-        for (DatabaseManager.UserRecord user : users) {
-            try {
-                // Temporisation pour éviter le Rate Limit (1.5s entre chaque requête utilisateur)
-                Thread.sleep(1500);
+        for (Map.Entry<String, List<DatabaseManager.UserRecord>> entry : usersMap.entrySet()) {
+            String discordId = entry.getKey();
+            List<DatabaseManager.UserRecord> accounts = entry.getValue();
+            
+            UserGroupRecap group = new UserGroupRecap();
+            group.discordId = discordId;
+            
+            // --- LOGIQUE MAIN ACCOUNT ---
+            // On identifie le compte avec l'élo le plus élevé pour le calcul du MVP
+            DatabaseManager.UserRecord mainAccount = null;
+            int highestElo = -1;
+            
+            // Pré-scan pour trouver le main account (via rank actuel ou snapshot)
+            // Ici on va utiliser les données 'currentRank' qu'on récupérera dans la boucle ci-dessous
+            // Mais pour simplifier, on va stocker les UserRecapData et trier après.
+            
+            int totalUserGames = 0;
+            int totalUserWins = 0;
+            int totalUserLosses = 0;
+            int totalUserLpDiff = 0;
+            double totalUserScoreSum = 0.0;
+            Set<String> notableTraits = new HashSet<>();
+            Set<String> dailyChampions = new HashSet<>();
+            
+            List<UserRecapData> userRecaps = new ArrayList<>();
 
-                // 1. Récupérer le rang actuel
-                RankInfo currentRank = riotService.getRank(user.puuid, user.region);
-                if (currentRank == null) continue;
+            for (DatabaseManager.UserRecord user : accounts) {
+                try {
+                    // Temporisation pour éviter le Rate Limit (1.5s entre chaque requête utilisateur)
+                    Thread.sleep(1500);
 
-                // 2. Récupérer le snapshot précédent
-                DatabaseManager.SnapshotRecord snapshot = db.getSnapshot(user.puuid);
-                
-                // Calcul des LP gagnés/perdus avec l'Elo Absolu
-                int lpDiff = 0;
-                boolean sameTierRank = false;
-                boolean hasSnapshot = (snapshot != null);
-                if (hasSnapshot) {
-                    int oldElo = RankUtils.calculateEloScore(snapshot.tier, snapshot.rank, snapshot.lp);
-                    int newElo = RankUtils.calculateEloScore(currentRank.tier, currentRank.rank, currentRank.lp);
-                    lpDiff = newElo - oldElo;
+                    // 1. Récupérer le rang actuel
+                    RankInfo currentRank = riotService.getRank(user.puuid, user.region);
+                    if (currentRank == null) continue;
 
-                    if (currentRank.tier.equals(snapshot.tier) && currentRank.rank.equals(snapshot.rank)) {
-                        sameTierRank = true;
+                    // 2. Récupérer le snapshot précédent
+                    DatabaseManager.SnapshotRecord snapshot = db.getSnapshot(user.puuid);
+                    
+                    // Calcul des LP gagnés/perdus avec l'Elo Absolu
+                    int lpDiff = 0;
+                    boolean sameTierRank = false;
+                    boolean hasSnapshot = (snapshot != null);
+                    if (hasSnapshot) {
+                        int oldElo = RankUtils.calculateEloScore(snapshot.tier, snapshot.rank, snapshot.lp);
+                        int newElo = RankUtils.calculateEloScore(currentRank.tier, currentRank.rank, currentRank.lp);
+                        lpDiff = newElo - oldElo;
+
+                        if (currentRank.tier.equals(snapshot.tier) && currentRank.rank.equals(snapshot.rank)) {
+                            sameTierRank = true;
+                        }
                     }
-                }
 
-                // 3. Récupérer UNIQUEMENT les matchs des dernières 24h
-                List<String> matchIds = riotService.getMatchIdsLast24h(user.puuid, user.region);
-                int wins = 0;
-                int losses = 0;
-                double totalScore = 0.0;
-                int gamesPlayed = 0;
-                
-                // Calcul de la date limite (24h avant maintenant)
-                long oneDayAgo = System.currentTimeMillis() - (24 * 60 * 60 * 1000);
+                    // 3. Récupérer UNIQUEMENT les matchs des dernières 24h
+                    List<String> matchIds = riotService.getMatchIdsLast24h(user.puuid, user.region);
+                    int wins = 0;
+                    int losses = 0;
+                    double totalScore = 0.0;
+                    int gamesPlayed = 0;
+                    
+                    // Calcul de la date limite (24h avant maintenant)
+                    long oneDayAgo = System.currentTimeMillis() - (24 * 60 * 60 * 1000);
 
-                for (String matchId : matchIds) {
-                    try {
-                        Thread.sleep(3000); // Anti-Rate Limit
-                        
-                        // Vérification de la date de la game
-                        long gameCreation = riotService.getGameCreationTime(matchId, user.region);
-                        if (gameCreation > 0 && gameCreation < oneDayAgo) {
-                            System.out.println("Fin des games de 24h pour " + user.summonerName);
-                            break; // On stoppe l'analyse de ce joueur, on a fini sa journée !
-                        }
-
-                        MatchDataExtractor.FullContext fullContext = riotService.getMatchContext(matchId, user.region);
-                        while (fullContext == null) {
-                            System.out.println("⚠️ Quota atteint ou erreur sur " + matchId + ". Pause de 2 minutes...");
-                            Thread.sleep(125000);
-                            fullContext = riotService.getMatchContext(matchId, user.region);
-                        }
-                        String analysisStr = riotService.getMatchAnalysis(matchId, user.puuid, user.region);
-                        if (analysisStr == null || analysisStr.startsWith("[")) continue; 
-                        
-                        JSONObject analysis = new JSONObject(analysisStr);
-                        
-                        // CORRECTION DU BUG : On ne cherche plus l'objet "info", il n'existe pas ici !
-                        if (!analysis.has("target_player")) continue;
-                        
-                        JSONObject targetPlayer = analysis.getJSONObject("target_player");
-                        gamesPlayed++;
-                        boolean win = targetPlayer.optBoolean("win", false);
-                        if (win) wins++; else losses++;
-                        String champName = targetPlayer.optString("champion", "").toUpperCase();
-                        MatchDataExtractor.PlayerContext myPlayerCtx = fullContext.players.get(champName);
-                        if (myPlayerCtx == null) {
-                            System.err.println("PlayerContext introuvable pour le champion: " + champName);
-                            continue;
-                        }
-                        
-                        MatchDataExtractor.PlayerContext oppPlayerCtx = null;
-                        for (MatchDataExtractor.PlayerContext p : fullContext.players.values()) {
-                            if (p.teamId != myPlayerCtx.teamId && p.role.equals(myPlayerCtx.role)) {
-                                oppPlayerCtx = p;
-                                break;
+                    for (String matchId : matchIds) {
+                        try {
+                            Thread.sleep(3000); // Anti-Rate Limit
+                            
+                            // Vérification de la date de la game
+                            long gameCreation = riotService.getGameCreationTime(matchId, user.region);
+                            if (gameCreation > 0 && gameCreation < oneDayAgo) {
+                                System.out.println("Fin des games de 24h pour " + user.summonerName);
+                                break; // On stoppe l'analyse de ce joueur, on a fini sa journée !
                             }
+
+                            MatchDataExtractor.FullContext fullContext = riotService.getMatchContext(matchId, user.region);
+                            while (fullContext == null) {
+                                System.out.println("⚠️ Quota atteint ou erreur sur " + matchId + ". Pause de 2 minutes...");
+                                Thread.sleep(125000);
+                                fullContext = riotService.getMatchContext(matchId, user.region);
+                            }
+                            String analysisStr = riotService.getMatchAnalysis(matchId, user.puuid, user.region);
+                            if (analysisStr == null || analysisStr.startsWith("[")) continue; 
+                            
+                            JSONObject analysis = new JSONObject(analysisStr);
+                            
+                            if (!analysis.has("target_player")) continue;
+                            
+                            JSONObject targetPlayer = analysis.getJSONObject("target_player");
+                            gamesPlayed++;
+                            boolean win = targetPlayer.optBoolean("win", false);
+                            if (win) wins++; else losses++;
+                            String champName = targetPlayer.optString("champion", "").toUpperCase();
+                            dailyChampions.add(champName);
+                            MatchDataExtractor.PlayerContext myPlayerCtx = fullContext.players.get(champName);
+                            if (myPlayerCtx == null) {
+                                System.err.println("PlayerContext introuvable pour le champion: " + champName);
+                                continue;
+                            }
+                            
+                            MatchDataExtractor.PlayerContext oppPlayerCtx = null;
+                            for (MatchDataExtractor.PlayerContext p : fullContext.players.values()) {
+                                if (p.teamId != myPlayerCtx.teamId && p.role.equals(myPlayerCtx.role)) {
+                                    oppPlayerCtx = p;
+                                    break;
+                                }
+                            }
+                            if (oppPlayerCtx == null) oppPlayerCtx = new MatchDataExtractor.PlayerContext();
+                            
+                            MatchDataExtractor.TeamCompositionProfile enemyComp = (myPlayerCtx.teamId == 100) ? fullContext.redTeamComp : fullContext.blueTeamComp;
+                            
+                            double durationMin = analysis.getJSONObject("metadata").optLong("duration_sec", 1800) / 60.0;
+                            
+                            JSONObject playerJsonForCalc = analysis.getJSONObject("target_player");
+                            playerJsonForCalc.put("k", playerJsonForCalc.optInt("kills"));
+                            playerJsonForCalc.put("d", playerJsonForCalc.optInt("deaths"));
+                            playerJsonForCalc.put("a", playerJsonForCalc.optInt("assists"));
+                            
+                            JSONObject scoreResult = ScoreCalculator.analyzePlayer(
+                                playerJsonForCalc, 
+                                currentRank.tier, 
+                                durationMin, 
+                                myPlayerCtx, 
+                                oppPlayerCtx, 
+                                enemyComp
+                            );
+                            
+                            totalScore += scoreResult.getInt("math_score");
+                            
+                            // Capture des synergies
+                            JSONArray synergies = scoreResult.optJSONArray("synergies");
+                            if (synergies != null) {
+                                for (int k = 0; k < synergies.length(); k++) {
+                                    String reason = synergies.getJSONObject(k).optString("reason", "");
+                                    notableTraits.add(reason.replaceAll("\\(.*?\\)", "").trim()); // On enlève les parenthèses pour faire propre
+                                }
+                            }
+
+                        } catch (Exception e) {
+                            System.err.println("Erreur analyse match " + matchId + ": " + e.getMessage());
                         }
-                        if (oppPlayerCtx == null) oppPlayerCtx = new MatchDataExtractor.PlayerContext();
-                        
-                        MatchDataExtractor.TeamCompositionProfile enemyComp = (myPlayerCtx.teamId == 100) ? fullContext.redTeamComp : fullContext.blueTeamComp;
-                        
-                        // CORRECTION DU BUG : La durée est dans "metadata" -> "duration_sec" dans ce JSON spécifique
-                        double durationMin = analysis.getJSONObject("metadata").optLong("duration_sec", 1800) / 60.0;
-                        
-                        JSONObject playerJsonForCalc = analysis.getJSONObject("target_player");
-                        playerJsonForCalc.put("k", playerJsonForCalc.optInt("kills"));
-                        playerJsonForCalc.put("d", playerJsonForCalc.optInt("deaths"));
-                        playerJsonForCalc.put("a", playerJsonForCalc.optInt("assists"));
-                        
-                        JSONObject scoreResult = ScoreCalculator.analyzePlayer(
-                            playerJsonForCalc, 
-                            benchmarks, 
-                            currentRank.tier, 
-                            durationMin, 
-                            myPlayerCtx, 
-                            oppPlayerCtx, 
-                            enemyComp
-                        );
-                        
-                        totalScore += scoreResult.getInt("math_score");
-
-                    } catch (Exception e) {
-                        System.err.println("Erreur analyse match " + matchId + ": " + e.getMessage());
                     }
-                }
-                
-                double averageScore = (gamesPlayed > 0) ? (totalScore / gamesPlayed) : 0.0;
-                double winrate = (gamesPlayed > 0) ? ((double)wins / gamesPlayed * 100.0) : 0.0;
-                
-                // Calcul du MVP Score
-                double mvpScore = (averageScore * 0.60) + (winrate * 0.30) + (Math.min(gamesPlayed, 5) * 2.0);
-
-                // Appel à l'IA pour le résumé
-                String aiSummary = "";
-                if (gamesPlayed > 0) {
-                    String context = "Joueur: " + user.summonerName + " | Games: " + gamesPlayed + " (" + wins + "W/" + losses + "L) | LP Diff: " + lpDiff + " | Note moyenne IA: " + String.format("%.1f", averageScore) + "/100";
-                    try {
-                        aiSummary = mistralService.runDailyChronicler(context);
-                    } catch (Exception e) {
-                        System.err.println("Erreur IA Chronicler pour " + user.summonerName + ": " + e.getMessage());
-                        aiSummary = "Pas de commentaire disponible.";
+                    
+                    double averageScore = (gamesPlayed > 0) ? (totalScore / gamesPlayed) : 0.0;
+                    double winrate = (gamesPlayed > 0) ? ((double)wins / gamesPlayed * 100.0) : 0.0;
+                    
+                    // Calcul du MVP Score
+                    double mvpScore = (averageScore * 0.60) + (winrate * 0.30) + (Math.min(gamesPlayed, 5) * 2.0);
+                    
+                    // Sauvegarde en base
+                    String dailyDetails = "Champions: " + String.join(", ", dailyChampions);
+                    if (!notableTraits.isEmpty()) {
+                        dailyDetails += " | Traits: " + String.join(", ", notableTraits);
                     }
-                }
-                
-                // Sauvegarde en base
-                db.saveDailyPerformance(user.puuid, user.discordId, todayDateString, gamesPlayed, wins, averageScore, lpDiff, mvpScore, aiSummary);
-                
-                recapList.add(new UserRecapData(user, currentRank, wins, losses, lpDiff, sameTierRank, hasSnapshot, averageScore, mvpScore, aiSummary));
+                    db.saveDailyPerformance(user.puuid, user.discordId, todayDateString, gamesPlayed, wins, averageScore, lpDiff, mvpScore, "", dailyDetails);
+                    
+                    UserRecapData recapData = new UserRecapData(user, currentRank, wins, losses, lpDiff, sameTierRank, hasSnapshot, averageScore, mvpScore, "");
+                    userRecaps.add(recapData);
+                    group.accounts.add(recapData);
+                    
+                    // Agrégation pour le groupe (Toutes les games)
+                    totalUserGames += gamesPlayed;
+                    totalUserWins += wins;
+                    totalUserLosses += losses;
+                    totalUserLpDiff += lpDiff;
+                    if (gamesPlayed > 0) {
+                        totalUserScoreSum += (averageScore * gamesPlayed);
+                    }
 
-                // 4. Mettre à jour le snapshot si demandé ou si c'est le premier
-                if (updateSnapshot || !hasSnapshot) {
-                    db.saveSnapshot(user.puuid, user.discordId, currentRank.tier, currentRank.rank, currentRank.lp);
-                }
+                    // 4. Mettre à jour le snapshot si demandé ou si c'est le premier
+                    if (updateSnapshot || !hasSnapshot) {
+                        db.saveSnapshot(user.puuid, user.discordId, currentRank.tier, currentRank.rank, currentRank.lp);
+                    }
 
-            } catch (Exception e) {
-                System.out.println("Erreur récap pour " + user.summonerName + ": " + e.getMessage());
-                if (e.getMessage() != null && e.getMessage().contains("QUOTA")) {
-                    try { Thread.sleep(5000); } catch (InterruptedException ignored) {}
+                } catch (Exception e) {
+                    System.out.println("Erreur récap pour " + user.summonerName + ": " + e.getMessage());
+                    if (e.getMessage() != null && e.getMessage().contains("QUOTA")) {
+                        try { Thread.sleep(5000); } catch (InterruptedException ignored) {}
+                    }
                 }
             }
+            
+            // --- LOGIQUE MVP (Filtrage Main Account) ---
+            // On cherche le compte avec le plus haut Elo qui a joué au moins une game
+            UserRecapData mainAccountData = null;
+            int highestRecapElo = -1;
+            
+            for (UserRecapData data : userRecaps) {
+                // On peut aussi considérer comme main account celui qui a le plus haut elo TOUT COURT, même s'il n'a pas joué
+                // Mais pour le MVP du jour, il faut qu'il ait joué.
+                // Si on veut exclure les smurfs du calcul MVP, on prend seulement le compte le plus haut classé.
+                // On va dire que le compte "Main" est celui avec l'Elo le plus haut parmis TOUS les comptes du joueur.
+                int elo = RankUtils.calculateEloScore(data.currentRank.tier, data.currentRank.rank, data.currentRank.lp);
+                if (elo > highestRecapElo) {
+                    highestRecapElo = elo;
+                    mainAccountData = data;
+                }
+            }
+            
+            // Calcul du score MVP UNIQUEMENT sur le Main Account (s'il a joué)
+            if (mainAccountData != null && mainAccountData.getTotalGames() > 0) {
+                // Le score du groupe pour le classement MVP est celui du Main Account
+                group.groupMvpScore = mainAccountData.mvpScore;
+            } else {
+                group.groupMvpScore = 0.0; // Pas éligible ou n'a joué que sur des comptes inférieurs (ce qui est bizarre si on prend le max elo des recaps, sauf si le 'main' n'a pas joué du tout)
+                // Si le Main n'a pas joué mais qu'il a joué sur smurf, on pourrait vouloir l'afficher mais ne pas le compter pour le MVP ?
+                // La consigne est : "ne prennent en compte que les comptes les plus hauts elo".
+                // Donc si le Main n'a pas joué, le joueur n'est pas éligible au MVP via ses smurfs.
+            }
+
+            // Génération du résumé IA (Sur l'ensemble des games par contre, pour raconter la journée)
+            if (totalUserGames > 0) {
+                double globalAvgScore = totalUserScoreSum / totalUserGames;
+                
+                StringBuilder aiPrompt = new StringBuilder();
+                aiPrompt.append("Joueur: <@").append(discordId).append("> | Total Games: ").append(totalUserGames)
+                        .append(" (").append(totalUserWins).append("W/").append(totalUserLosses).append("L) | LP Diff Total: ").append(totalUserLpDiff)
+                        .append(" | Note moyenne IA: ").append(String.format("%.1f", globalAvgScore)).append("/100");
+                
+                if (!notableTraits.isEmpty()) {
+                    aiPrompt.append("\nFaits marquants détectés par l'algo : ").append(String.join(", ", notableTraits)).append("\n");
+                }
+                
+                try {
+                    group.globalAiSummary = mistralService.runDailyChronicler(aiPrompt.toString());
+                } catch (Exception e) {
+                    System.err.println("Erreur IA Chronicler pour " + discordId + ": " + e.getMessage());
+                    group.globalAiSummary = "Pas de commentaire disponible.";
+                }
+            }
+            
+            groups.add(group);
         }
 
-        // Tri par MVP Score décroissant
-        recapList.sort((d1, d2) -> Double.compare(d2.mvpScore, d1.mvpScore));
+        // Tri par MVP Score de groupe décroissant
+        groups.sort((g1, g2) -> Double.compare(g2.groupMvpScore, g1.groupMvpScore));
 
-        // Trouver le MVP du jour
-        UserRecapData mvpUser = null;
-        double bestMvpScore = -1.0;
-
-        for (UserRecapData data : recapList) {
-            if (data.getTotalGames() > 0 && data.mvpScore > bestMvpScore) {
-                bestMvpScore = data.mvpScore;
-                mvpUser = data;
-            }
+        // Trouver le MVP du jour (basé sur le score de groupe)
+        UserGroupRecap mvpGroup = null;
+        if (!groups.isEmpty() && groups.get(0).groupMvpScore > 0) {
+            mvpGroup = groups.get(0);
         }
 
         StringBuilder sb = new StringBuilder();
-        for (UserRecapData data : recapList) {
-            String rankEmoji = RankUtils.getRankEmoji(data.currentRank.tier);
-            
-            String lpString = "";
-            if (data.hasSnapshot) {
-                if (data.lpDiff > 0) lpString = " `+" + data.lpDiff + " LP` 📈";
-                else if (data.lpDiff < 0) lpString = " `" + data.lpDiff + " LP` 📉";
-                else lpString = " `0 LP` ➖";
-                
-                // On signale si la division a changé en plus du delta de LP
-                if (!data.sameTierRank) {
-                     lpString += " *(Rang Modifié)*";
-                }
-            } else {
-                lpString = " `Nouveau suivi` 🆕";
+        for (UserGroupRecap group : groups) {
+            if (sb.length() > 3000) {
+                embed.setDescription(sb.toString());
+                channel.sendMessageEmbeds(embed.build()).queue();
+                sb.setLength(0);
+                embed = new EmbedBuilder().setColor(new Color(47, 49, 54));
             }
-
-            sb.append(rankEmoji).append(" **").append(data.user.summonerName).append("**\n");
             
-            if ("UNRANKED".equals(data.currentRank.tier)) {
-                sb.append("> *Unranked*\n");
-            } else {
-                sb.append("> ").append(data.currentRank.tier).append(" ").append(data.currentRank.rank)
-                  .append(" • **").append(data.currentRank.lp).append(" LP**").append(lpString).append("\n");
-            }
-
-            int totalGames = data.getTotalGames();
-            if (totalGames > 0) {
-                String winrateBar = getWinrateProgressBar(data.getWinrate());
-                sb.append("> ").append(winrateBar).append(" **").append(data.wins).append("W** / **").append(data.losses).append("L** (").append(data.getWinrate()).append("%)\n");
+            // On liste tous les comptes du joueur
+            for (UserRecapData data : group.accounts) {
+                String rankEmoji = RankUtils.getRankEmoji(data.currentRank.tier);
                 
-                // Affichage Note IA et Résumé
-                sb.append("> 📊 Note IA : **").append(String.format("%.1f", data.averageScore)).append("/100**\n");
-                if (data.aiSummary != null && !data.aiSummary.isEmpty()) {
-                    sb.append("> 🎙️ *« ").append(data.aiSummary).append(" »*\n");
+                String lpString = "";
+                if (data.hasSnapshot) {
+                    if (data.lpDiff > 0) lpString = " `+" + data.lpDiff + " LP` 📈";
+                    else if (data.lpDiff < 0) lpString = " `" + data.lpDiff + " LP` 📉";
+                    else lpString = " `0 LP` ➖";
+                    
+                    if (!data.sameTierRank) {
+                         lpString += " *(Rang Modifié)*";
+                    }
+                } else {
+                    lpString = " `Nouveau suivi` 🆕";
                 }
-            } else {
-                sb.append("> 💤 *Pas de game aujourd'hui*\n");
+
+                sb.append(rankEmoji).append(" **").append(data.user.summonerName).append("**\n");
+                
+                if ("UNRANKED".equals(data.currentRank.tier)) {
+                    sb.append("> *Unranked*\n");
+                } else {
+                    sb.append("> ").append(data.currentRank.tier).append(" ").append(data.currentRank.rank)
+                      .append(" • **").append(data.currentRank.lp).append(" LP**").append(lpString).append("\n");
+                }
+                
+                if (data.getTotalGames() > 0) {
+                    sb.append("> ").append(getWinrateProgressBar(data.getWinrate())).append(" **").append(data.wins).append("W** / **").append(data.losses).append("L** (").append(data.getWinrate()).append("%)\n");
+                    sb.append("> 📊 Note IA : **").append(String.format("%.1f", data.averageScore)).append("/100**\n");
+                } else {
+                    sb.append("> 💤 *Pas de game aujourd'hui*\n");
+                }
+            }
+            
+            // Le commentaire IA global s'affiche UNE SEULE FOIS sous le groupe du joueur
+            if (group.globalAiSummary != null && !group.globalAiSummary.isEmpty()) {
+                sb.append("> 🎙️ *« ").append(group.globalAiSummary).append(" »*\n");
             }
             sb.append("\n");
         }
 
         // Affichage du MVP
-        if (mvpUser != null) {
+        if (mvpGroup != null) {
+            // On récupère le nom d'un des comptes pour l'affichage (le premier par exemple)
+            String mvpName = !mvpGroup.accounts.isEmpty() ? mvpGroup.accounts.get(0).user.summonerName : "Inconnu";
+            
             sb.append("\n\n🏆 **LE MVP DU JOUR** 🏆\n");
-            sb.append("Félicitations à **").append(mvpUser.user.summonerName).append("** qui domine le serveur aujourd'hui !\n");
-            sb.append("> *Score MVP : **").append(String.format("%.1f", bestMvpScore)).append("** ");
-            sb.append("(Note IA: ").append(String.format("%.1f", mvpUser.averageScore)).append(" x 0.6 | ");
-            sb.append("WR: ").append(mvpUser.getWinrate()).append("% x 0.3 | Volume: +").append(Math.min(mvpUser.getTotalGames(), 5) * 2).append(" pts)*");
+            sb.append("Félicitations à <@").append(mvpGroup.discordId).append("> qui domine le serveur aujourd'hui !\n");
+            sb.append("> *Score MVP Global (Main Account) : **").append(String.format("%.1f", mvpGroup.groupMvpScore)).append("** ");
         }
 
         if (sb.length() > 0) {
@@ -547,5 +671,12 @@ public class DailyRecapService {
             int total = getTotalGames();
             return total > 0 ? (wins * 100 / total) : 0;
         }
+    }
+
+    private static class UserGroupRecap {
+        String discordId;
+        double groupMvpScore;
+        List<UserRecapData> accounts = new ArrayList<>();
+        String globalAiSummary;
     }
 }

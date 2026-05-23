@@ -12,8 +12,6 @@ import org.example.service.MatchDataExtractor;
 import org.example.service.MatchNarrator;
 import org.example.service.RiotService;
 import org.example.service.ScoreCalculator;
-import org.example.service.ai.Records.AnalystAdjustment;
-import org.example.service.ai.Records.MatchAnalysisResult;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -78,7 +76,6 @@ public class PerformanceCommand implements SlashCommand {
 
                 RiotService.RankInfo rankInfo = ctx.riotService().getRank(finalDbUser.puuid, finalDbUser.region);
                 String gameTier = (rankInfo != null && rankInfo.tier != null) ? rankInfo.tier : "GOLD";
-                JSONObject benchmarks = ctx.benchmarkService().getBenchmarks();
                 double durationMin = fullMatchData.getJSONObject("metadata").optLong("duration_sec", 1800) / 60.0;
 
                 JSONArray allies = fullMatchData.getJSONArray("allies");
@@ -113,7 +110,7 @@ public class PerformanceCommand implements SlashCommand {
                     p.put("champion_class", champClass);
 
                     // Appel avec la nouvelle signature
-                    JSONObject mathResult = ScoreCalculator.analyzePlayer(p, benchmarks, gameTier, durationMin, pCtx, oppCtx, enemyComp);
+                    JSONObject mathResult = ScoreCalculator.analyzePlayer(p, gameTier, durationMin, pCtx, oppCtx, enemyComp);
                     p.put("ai_context", mathResult);
                     p.put("score", mathResult.getInt("math_score"));
                     p.put("comment", "⏱️ *Analyse IA en cours...*");
@@ -131,28 +128,45 @@ public class PerformanceCommand implements SlashCommand {
                     ctx.executor().submit(() -> {
                         try {
                             JSONObject aiPayload = new JSONObject().put("match_duration", durationMin).put("players", playersToAnalyze);
-                            // Appel direct au Commentateur (plus d'Analyste)
-                            String casterJson = ctx.mistralService().runPerformanceCaster(aiPayload.toString());
-                            JSONArray casterComments = new JSONArray(casterJson.replace("```json", "").replace("```", "").trim());
+                            String rawCasterResponse = ctx.mistralService().runPerformanceCaster(aiPayload.toString());
+                            JSONArray casterComments = null;
 
-                            for (int i = 0; i < casterComments.length(); i++) {
-                                JSONObject c = casterComments.getJSONObject(i);
-                                String aiChampName = c.getString("champion").toUpperCase().trim();
-                                
-                                // Normalisation des noms problématiques
-                                if (aiChampName.equals("WUKONG")) aiChampName = "MONKEYKING";
-                                if (aiChampName.equals("RENATA GLASC")) aiChampName = "RENATA";
-                                if (aiChampName.equals("NUNU & WILLUMP")) aiChampName = "NUNU";
-                                
-                                JSONObject p = javaPlayerMap.get(aiChampName);
-                                if(p != null) {
-                                    p.put("comment", c.optString("comment", "Sans commentaire."));
+                            try {
+                                int startIndex = rawCasterResponse.indexOf('[');
+                                int endIndex = rawCasterResponse.lastIndexOf(']');
+
+                                if (startIndex != -1 && endIndex != -1 && endIndex > startIndex) {
+                                    String jsonPart = rawCasterResponse.substring(startIndex, endIndex + 1);
+                                    casterComments = new JSONArray(jsonPart);
                                 } else {
-                                    // Fallback de sécurité : on cherche si le nom de l'IA est contenu dans un nom de champion
-                                    for (String realName : javaPlayerMap.keySet()) {
-                                        if (realName.contains(aiChampName) || aiChampName.contains(realName)) {
-                                            javaPlayerMap.get(realName).put("comment", c.optString("comment", "Sans commentaire."));
-                                            break;
+                                    casterComments = new JSONArray(rawCasterResponse.replace("```json", "").replace("```", "").trim());
+                                }
+                            } catch (org.json.JSONException e) {
+                                System.err.println("Failed to parse AI caster response: " + e.getMessage());
+                                System.err.println("Raw response was: " + rawCasterResponse);
+                            }
+
+                            if (casterComments != null) {
+                                for (int i = 0; i < casterComments.length(); i++) {
+                                    JSONObject c = casterComments.getJSONObject(i);
+                                    String aiChampName = c.getString("champion").toUpperCase().trim();
+                                    
+                                    if (aiChampName.equals("WUKONG")) aiChampName = "MONKEYKING";
+                                    if (aiChampName.equals("RENATA GLASC")) aiChampName = "RENATA";
+                                    if (aiChampName.equals("NUNU & WILLUMP")) aiChampName = "NUNU";
+                                    
+                                    String rawComment = c.optString("comment", "Sans commentaire.");
+                                    String cleanComment = rawComment.replace("*", "").replace("_", "");
+
+                                    JSONObject p = javaPlayerMap.get(aiChampName);
+                                    if(p != null) {
+                                        p.put("comment", "*" + cleanComment + "*");
+                                    } else {
+                                        for (String realName : javaPlayerMap.keySet()) {
+                                            if (realName.contains(aiChampName) || aiChampName.contains(realName)) {
+                                                javaPlayerMap.get(realName).put("comment", cleanComment);
+                                                break;
+                                            }
                                         }
                                     }
                                 }
@@ -280,7 +294,7 @@ public class PerformanceCommand implements SlashCommand {
         String medal = score >= 95 ? "👑" : score >= 90 ? "👑" : score >= 80 ? "🔥" : score >= 50 ? "😐" : "💩";
         String tag = p.optBoolean("is_mvp") ? " **MVP** 🏆" : (p.optBoolean("is_ace") ? " **ACE** 💎" : "");
 
-        return String.format("%s **%s** (%s)\n**%s** — **%d/100** %s%s\n*%s*\n\n",
+        return String.format("%s **%s** (%s)\n**%s** — **%d/100** %s%s\n%s\n\n",
                 getRoleEmoji(p.getString("role_normalized")), name, p.optString("champion"), kda, score, medal, tag, p.optString("comment"));
     }
 
