@@ -11,7 +11,7 @@ import org.example.DatabaseManager;
 import org.example.service.MatchDataExtractor;
 import org.example.service.MatchNarrator;
 import org.example.service.RiotService;
-import org.example.service.ScoreCalculator;
+import org.example.service.WecOrchestrator;
 import org.example.service.ai.Records.AnalystAdjustment;
 import org.example.service.ai.Records.MatchAnalysisResult;
 import org.json.JSONArray;
@@ -59,14 +59,17 @@ public class PerformanceCommand implements SlashCommand {
                 String matchJsonStr = ctx.riotService().getMatchAnalysis(lastMatchId, dbUser.puuid, dbUser.region);
                 JSONObject fullMatchData = new JSONObject(matchJsonStr);
 
-                // CORRECTION ICI : Utilisation de FullContext
-                MatchDataExtractor.FullContext fullContext = ctx.riotService().getMatchContext(lastMatchId, dbUser.region);
+                RiotService.MatchBundle bundle = ctx.riotService().getMatchBundle(lastMatchId, dbUser.region);
+                if (bundle == null) {
+                    event.getHook().sendMessage("❌ Impossible de récupérer les données du match.").queue();
+                    return;
+                }
+                MatchDataExtractor.FullContext fullContext = bundle.fullContext;
                 Map<String, MatchDataExtractor.PlayerContext> globalContext = fullContext.players;
-                MatchDataExtractor.TeamCompositionProfile enemyComp = fullContext.redTeamComp; // Par défaut
+                WecOrchestrator.WecAnalysis wecAnalysis = WecOrchestrator.analyze(fullContext, bundle.rawTimeline);
 
                 RiotService.RankInfo rankInfo = ctx.riotService().getRank(dbUser.puuid, dbUser.region);
                 String gameTier = (rankInfo != null && rankInfo.tier != null) ? rankInfo.tier : "GOLD";
-                JSONObject benchmarks = ctx.benchmarkService().getBenchmarks();
                 double durationMin = fullMatchData.getJSONObject("metadata").optLong("duration_sec", 1800) / 60.0;
 
                 JSONArray allies = fullMatchData.getJSONArray("allies");
@@ -82,33 +85,25 @@ public class PerformanceCommand implements SlashCommand {
                 for (int i = 0; i < playersToAnalyze.length(); i++) {
                     JSONObject p = playersToAnalyze.getJSONObject(i);
                     String champName = p.getString("champion").toUpperCase();
-                    String role = p.optString("role", "TOP");
 
                     MatchDataExtractor.PlayerContext pCtx = globalContext.get(champName);
                     MatchDataExtractor.PlayerContext oppCtx = null;
                     if (pCtx != null) {
-                        // Détermination de l'équipe ennemie pour l'analyse contextuelle
-                        enemyComp = (pCtx.teamId == 100) ? fullContext.redTeamComp : fullContext.blueTeamComp;
-                        
                         for (MatchDataExtractor.PlayerContext other : globalContext.values()) {
-                            if (other.teamId != pCtx.teamId && other.role.equals(pCtx.role)) {
+                            if (other.teamId != pCtx.teamId && other.role != null && other.role.equals(pCtx.role)) {
                                 oppCtx = other; break;
                             }
                         }
                     }
 
-                    String champClass = ScoreCalculator.getChampionClass(champName, role);
-                    p.put("champion_class", champClass);
-
-                    // Appel avec la nouvelle signature
-                    JSONObject mathResult = ScoreCalculator.analyzePlayer(p, benchmarks, gameTier, durationMin, pCtx, oppCtx, enemyComp);
-                    p.put("ai_context", mathResult);
-                    p.put("score", mathResult.getInt("math_score"));
+                    JSONObject wecResult = (pCtx != null)
+                            ? WecOrchestrator.buildPlayerOutput(pCtx, wecAnalysis, fullContext)
+                            : new JSONObject();
+                    p.put("ai_context", wecResult);
+                    p.put("score", wecResult.optInt("math_score", 50));
                     p.put("comment", "⏱️ *Analyse IA en cours...*");
 
-                    // Sauvegarde du KDA formaté pour l'affichage
                     p.put("kda_display", p.optInt("k", 0) + "/" + p.optInt("d", 0) + "/" + p.optInt("a", 0));
-
                     p.put("factual_digest", MatchNarrator.buildPlayerDigest(p, pCtx, oppCtx));
                     javaPlayerMap.put(champName, p);
                 }
@@ -147,38 +142,45 @@ public class PerformanceCommand implements SlashCommand {
                                 audit.append("=========================================\n");
                                 audit.append("👑 CHAMPION : ").append(p.getString("champion")).append("\n");
                                 audit.append("=========================================\n\n");
-                                JSONObject math = p.getJSONObject("ai_context");
-                                audit.append("--- 🧮 LE MATHÉMATICIEN ---\nNote brute : ").append(math.getInt("math_score")).append("/100\n");
+                                JSONObject wec = p.getJSONObject("ai_context");
+                                int wecScore = wec.optInt("math_score", 50);
+                                double wecRaw = wec.optDouble("wec_raw", 0.0);
+                                audit.append("--- ⚖️ V3-WEC (Win Equity Contribution) ---\n");
+                                audit.append(String.format("Note WEC : %d/100  (wec_raw=%+.3f)\n", wecScore, wecRaw));
 
-// 1. Affichage des 4 Piliers
-                                if (math.has("pillars")) {
-                                    JSONArray pillars = math.getJSONArray("pillars");
-                                    for (int j = 0; j < pillars.length(); j++) {
-                                        JSONObject pillar = pillars.getJSONObject(j);
-                                        audit.append(String.format("  - Pilier %s : %d/100 (Poids: %.0f%%) -> %s\n",
-                                                pillar.getString("name"),
-                                                pillar.getInt("score"),
-                                                pillar.getDouble("weight") * 100,
-                                                pillar.getString("reason")));
+                                if (wec.has("commentator_brief")) {
+                                    JSONObject brief = wec.getJSONObject("commentator_brief");
+                                    audit.append("  Tone : ").append(brief.optString("tone")).append("\n");
+                                    audit.append("  Hook : ").append(brief.optString("narrative_hook")).append("\n");
+                                    if (brief.has("decisive_moments")) {
+                                        JSONArray dm = brief.getJSONArray("decisive_moments");
+                                        for (int j = 0; j < dm.length(); j++)
+                                            audit.append("    > ").append(dm.getString(j)).append("\n");
                                     }
                                 }
-
-// 2. Affichage des Synergies
-                                if (math.has("synergies")) {
-                                    JSONArray synergies = math.getJSONArray("synergies");
-                                    for (int j = 0; j < synergies.length(); j++) {
-                                        JSONObject syn = synergies.getJSONObject(j);
-                                        audit.append(String.format("  - SYNERGIE : %s (%.1f pts)\n",
-                                                syn.getString("reason"),
-                                                syn.getDouble("points")));
+                                if (wec.has("behavior_profile")) {
+                                    JSONObject bp = wec.getJSONObject("behavior_profile");
+                                    audit.append("  Profil comportemental : ").append(bp.optString("identity")).append("\n");
+                                    audit.append(String.format("    gold_slope early/mid/late = %.2f/%.2f/%.2f\n",
+                                            bp.optDouble("gold_slope_early"), bp.optDouble("gold_slope_mid"), bp.optDouble("gold_slope_late")));
+                                }
+                                if (wec.has("win_equity_contributions")) {
+                                    JSONArray contribs = wec.getJSONArray("win_equity_contributions");
+                                    audit.append("  Contributions WEC (" + contribs.length() + " events) :\n");
+                                    for (int j = 0; j < Math.min(5, contribs.length()); j++) {
+                                        JSONObject ev = contribs.getJSONObject(j);
+                                        audit.append(String.format("    T:%.1fmin %s [%s] attrib=%+.3f\n",
+                                                ev.optDouble("timestamp_min"),
+                                                ev.optString("event"),
+                                                ev.optString("role_in_event"),
+                                                ev.optDouble("attributed")));
                                     }
                                 }
-                                // 3. Affichage des Infos Macro
-                                if (math.has("macro_info")) {
-                                    JSONArray macroInfos = math.getJSONArray("macro_info");
-                                    for (int j = 0; j < macroInfos.length(); j++) {
-                                        audit.append("  - INFO MACRO : ").append(macroInfos.getString(j)).append("\n");
-                                    }
+                                if (wec.has("support_metrics")) {
+                                    JSONObject sm = wec.getJSONObject("support_metrics");
+                                    audit.append(String.format("  Support: vision=%.1f heal=%.1f cc=%.1f lane_gold=%.1f\n",
+                                            sm.optDouble("vision_value"), sm.optDouble("heal_shield_value"),
+                                            sm.optDouble("cc_chain_value"), sm.optDouble("lane_duo_gold_diff")));
                                 }
                                 AnalystAdjustment adj = adjMap.get(champ);
                                 if (adj != null) {

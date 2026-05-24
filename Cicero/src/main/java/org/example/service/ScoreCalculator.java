@@ -3,12 +3,6 @@ package org.example.service;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-
 import static org.example.service.ScoringConstants.Global.*;
 import static org.example.service.ScoringConstants.Global.Floor.*;
 
@@ -22,9 +16,24 @@ public class ScoreCalculator {
     public static final String MAGE = "MAGE";
     public static final String ADC = "ADC";
 
-    // Multiplicateurs pour le calcul du score d'invade, maintenant locaux.
     private static final double INVADE_KILL_MULTIPLIER = 1.5;
     private static final double INVADE_SCUTTLE_MULTIPLIER = 2.0;
+
+    /** Thin wrapper for callers that need the base class without a PlayerContext (e.g. team comp profiling). */
+    public static String getChampionClass(String championName, String role) {
+        return ChampionProfileLoader.getBaseClass(championName, role);
+    }
+
+    private static double[] getCombatActivityWeights(String champClass) {
+        return switch (champClass) {
+            case ASSASSIN, ADC -> new double[]{2.0, 0.5};
+            case COMBATTANT_ECLAIR -> new double[]{1.5, 0.8};
+            case COMBATTANT -> new double[]{1.5, 0.8};
+            case MAGE -> new double[]{1.0, 1.5};
+            case TANK, ENCHANTER -> new double[]{0.3, 2.0};
+            default -> new double[]{1.5, 0.8};
+        };
+    }
 
     public static class RoleBenchmarks {
         public double expectedCsPerMin;
@@ -37,47 +46,6 @@ public class ScoreCalculator {
         public double expectedDpm;
     }
 
-    // --- LE DICTIONNAIRE DES CHAMPIONS ---
-    private static final Map<String, String> CHAMPION_CLASSES = new HashMap<>();
-
-    static {
-        try (InputStream is = ScoreCalculator.class.getResourceAsStream("/champion_classes.json")) {
-            if (is == null) {
-                throw new RuntimeException("Cannot find champion_classes.json");
-            }
-            String jsonText = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            JSONObject json = new JSONObject(jsonText);
-            
-            Iterator<String> keys = json.keys();
-            while(keys.hasNext()) {
-                String className = keys.next();
-                JSONArray champions = json.getJSONArray(className);
-                for (int i = 0; i < champions.length(); i++) {
-                    String championName = champions.getString(i);
-                    CHAMPION_CLASSES.put(championName.toLowerCase(), className);
-                }
-            }
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load champion classes", e);
-        }
-    }
-
-    public static String getChampionClass(String championName, String role) {
-        String cleanName = championName.toLowerCase().trim();
-        if (cleanName.contains("nunu")) return TANK;
-        if (cleanName.contains("renata")) return ENCHANTER;
-
-        String champClass = CHAMPION_CLASSES.get(cleanName);
-        if (champClass != null) return champClass;
-
-        return switch (role.toUpperCase()) {
-            case "BOTTOM", "ADC" -> ADC;
-            case "UTILITY", "SUPPORT" -> ENCHANTER;
-            case "MIDDLE", "MID" -> MAGE;
-            case "JUNGLE", "TOP" -> COMBATTANT;
-            default -> COMBATTANT;
-        };
-    }
 
     /**
      * NOUVELLE STRUCTURE : Optimisée pour fournir un JSON clair à l'Analyste IA
@@ -168,7 +136,9 @@ public class ScoreCalculator {
         if (internalRole.equals("BOTTOM")) jsonRoleKey = "ADC";
 
         String champName = player.optString("champion", player.optString("championName", ""));
-        String champClass = getChampionClass(champName, internalRole);
+        ChampionProfileLoader.ResolvedProfile resolved = ChampionProfileLoader.resolveProfile(champName, internalRole, ctx);
+        String champClass = resolved.champClass;
+        double scalingFactor = resolved.scalingFactor;
 
         ScoreResult res = new ScoreResult();
 
@@ -196,25 +166,100 @@ public class ScoreCalculator {
 
 
         switch (internalRole) {
-            case "TOP" -> calculateTopScore(ctx, oppCtx, champClass, bench, gameDurationMin, res, enemyComp);
-            case "JUNGLE" -> calculateJungleScore(ctx, oppCtx, champClass, bench, gameDurationMin, res, enemyComp);
-            case "MIDDLE" -> calculateMidScore(ctx, oppCtx, champClass, bench, gameDurationMin, res, enemyComp);
-            case "BOTTOM" -> calculateAdcScore(ctx, oppCtx, champClass, bench, gameDurationMin, res, enemyComp);
-            case "SUPPORT" -> calculateSupportScore(ctx, oppCtx, champClass, bench, gameDurationMin, res, enemyComp);
-            default -> calculateTopScore(ctx, oppCtx, champClass, bench, gameDurationMin, res, enemyComp);
+            case "TOP" -> calculateTopScore(ctx, oppCtx, champClass, scalingFactor, bench, gameDurationMin, res, enemyComp);
+            case "JUNGLE" -> calculateJungleScore(ctx, oppCtx, champClass, scalingFactor, bench, gameDurationMin, res, enemyComp);
+            case "MIDDLE" -> calculateMidScore(ctx, oppCtx, champClass, scalingFactor, bench, gameDurationMin, res, enemyComp);
+            case "BOTTOM" -> calculateAdcScore(ctx, oppCtx, champClass, scalingFactor, bench, gameDurationMin, res, enemyComp);
+            case "SUPPORT" -> calculateSupportScore(ctx, oppCtx, champClass, scalingFactor, bench, gameDurationMin, res, enemyComp);
+            default -> calculateTopScore(ctx, oppCtx, champClass, scalingFactor, bench, gameDurationMin, res, enemyComp);
         }
 
         applyGlobalRules(res, player);
 
-        // NOUVEAU : Création du payload hyper-structuré pour l'Analyste IA
         JSONObject output = new JSONObject();
         output.put("math_score", (int) res.totalScore);
         output.put("champion_class", champClass);
+        output.put("scaling_factor", scalingFactor);
         output.put("pillars", res.pillarsJson);
         output.put("macro_info", res.macroInfoJson);
         output.put("synergies", res.synergiesJson);
+        output.put("commentator_brief", buildCommentatorBrief(res, champClass, res.totalScore));
 
         return output;
+    }
+
+    private static JSONObject buildCommentatorBrief(ScoreResult res, String champClass, double totalScore) {
+        JSONObject brief = new JSONObject();
+
+        String tone;
+        if (totalScore >= 80)      tone = "dominant";
+        else if (totalScore >= 65) tone = "impactful";
+        else if (totalScore >= 45) tone = "average";
+        else                       tone = "disappointing";
+        brief.put("tone", tone);
+
+        JSONArray positives = new JSONArray();
+        JSONArray negatives = new JSONArray();
+
+        // Pillars
+        for (int i = 0; i < res.pillarsJson.length(); i++) {
+            JSONObject p = res.pillarsJson.getJSONObject(i);
+            int score = p.getInt("score");
+            String label = p.getString("name") + " (" + score + "/100): " + p.getString("reason");
+            if (score > 65) positives.put(label);
+            else if (score < 40) negatives.put(label);
+        }
+
+        // Synergies
+        for (int i = 0; i < res.synergiesJson.length(); i++) {
+            JSONObject s = res.synergiesJson.getJSONObject(i);
+            double pts = s.getDouble("points");
+            String reason = s.getString("reason");
+            if (pts > 0) positives.put(reason);
+            else if (pts < 0) negatives.put(reason);
+        }
+
+        // Macro info (toujours en négatifs — ce sont des alertes contextuelles)
+        for (int i = 0; i < res.macroInfoJson.length(); i++) {
+            negatives.put(res.macroInfoJson.getString(i));
+        }
+
+        brief.put("positives", positives);
+        brief.put("negatives", negatives);
+
+        // Narrative hook : trouver le contraste le plus fort
+        int maxPillarScore = -1, minPillarScore = 101;
+        String maxPillarLabel = "", minPillarLabel = "";
+        for (int i = 0; i < res.pillarsJson.length(); i++) {
+            JSONObject p = res.pillarsJson.getJSONObject(i);
+            int score = p.getInt("score");
+            if (score > maxPillarScore) { maxPillarScore = score; maxPillarLabel = p.getString("name"); }
+            if (score < minPillarScore) { minPillarScore = score; minPillarLabel = p.getString("name"); }
+        }
+
+        // Chercher la synergie la plus extrême
+        double extremeSynergyPts = 0;
+        String extremeSynergyReason = "";
+        for (int i = 0; i < res.synergiesJson.length(); i++) {
+            JSONObject s = res.synergiesJson.getJSONObject(i);
+            double pts = s.getDouble("points");
+            if (Math.abs(pts) > Math.abs(extremeSynergyPts)) {
+                extremeSynergyPts = pts;
+                extremeSynergyReason = s.getString("reason");
+            }
+        }
+
+        String hook;
+        if (!extremeSynergyReason.isEmpty() && Math.abs(extremeSynergyPts) >= 8) {
+            hook = extremeSynergyReason + (extremeSynergyPts > 0 ? "." : " (-" + (int) Math.abs(extremeSynergyPts) + " pts).");
+        } else if (maxPillarScore - minPillarScore >= 30) {
+            hook = "Domination " + maxPillarLabel + " (" + maxPillarScore + "/100) mais " + minPillarLabel + " anémique (" + minPillarScore + "/100).";
+        } else {
+            hook = "Performance " + tone + " sur " + champClass + " (" + (int) totalScore + "/100).";
+        }
+        brief.put("narrative_hook", hook);
+
+        return brief;
     }
 
     private static void applyGlobalRules(ScoreResult res, JSONObject player) {
@@ -256,13 +301,18 @@ public class ScoreCalculator {
                     ctx.unforcedErrorDeaths + " mort(s) évitable(s) ayant offert un objectif à l'ennemi.");
         }
 
+        // Morts 1v1 en lane avant 14 min : perte du duel = perd la lane
+        if (ctx.earlySoloDeaths > 0) {
+            res.addSynergy(ctx.earlySoloDeaths * Synergies.EARLY_SOLO_DEATH_MALUS,
+                    ctx.earlySoloDeaths + " mort(s) en duel 1v1 avant 14 min (lane perdue).");
+        }
+
         if (ctx.pickOffs > 0) {
             res.addSynergy(ctx.pickOffs * Synergies.PICK_OFF_BONUS,
                     ctx.pickOffs + " cible(s) isolée(s) éliminée(s), créant une supériorité numérique.");
         }
-        
+
         // --- BONUS TERMINATOR (STOMP) ---
-        // Calcul du Net Kills (Kills - Morts)
         int netKills = ctx.kills - ctx.deaths;
         if (netKills > Synergies.TERMINATOR_NET_KILL_THRESHOLD) {
             int extraNetKills = netKills - Synergies.TERMINATOR_NET_KILL_THRESHOLD;
@@ -275,29 +325,37 @@ public class ScoreCalculator {
     // CALCULS PAR RÔLE
     // =========================================================================
 
-    private static void calculateTopScore(MatchDataExtractor.PlayerContext ctx, MatchDataExtractor.PlayerContext oppCtx, String champClass, RoleBenchmarks bench, double durationMin, ScoreResult res, MatchDataExtractor.TeamCompositionProfile enemyComp) {
+    private static void calculateTopScore(MatchDataExtractor.PlayerContext ctx, MatchDataExtractor.PlayerContext oppCtx, String champClass, double scalingFactor, RoleBenchmarks bench, double durationMin, ScoreResult res, MatchDataExtractor.TeamCompositionProfile enemyComp) {
 
-        // --- PILIER 1 : LANE & ÉCONOMIE (35%) ---
-        // En Toplane, l'économie dicte la loi. Farm et Diff 14m.
+        double laneEcoWeight = ScoringConstants.Top.LANE_ECO_WEIGHT * (1 - scalingFactor * SCALING_FACTOR_LANE_COEFFICIENT);
+        double macroClassWeight = 1.0 - ScoringConstants.Top.COMBAT_WEIGHT - laneEcoWeight;
+
+        // --- PILIER 1 : LANE & ÉCONOMIE ---
         double actualCsPerMin = ctx.totalCs / durationMin;
         double csScore = calculateNormalizedScore(actualCsPerMin, bench.expectedCsPerMin, ScoringConstants.Top.CS_SENSITIVITY);
 
-        // Le Diff Gold est extrêmement valorisé ici (Gagner sa lane = Gagner en Toplane)
-        // Pour le gold diff, l'attente est 0 (égalité)
-        double goldScore = calculateNormalizedScore(ctx.goldDiffAt14, 0, ScoringConstants.Top.GOLD_SENSITIVITY);
+        double goldScore = durationMin < 14.0 ? 50.0
+                : calculateNormalizedScore(ctx.goldDiffAt14, 0, ScoringConstants.Top.GOLD_SENSITIVITY);
 
         double pLane = (csScore * ScoringConstants.Top.CS_SCORE_WEIGHT) + (goldScore * ScoringConstants.Top.GOLD_SCORE_WEIGHT);
-        res.setPillar("LANE_ECO", pLane, ScoringConstants.Top.LANE_ECO_WEIGHT, String.format("Diff 14m: %dg, CS/m: %.1f (Att: %.1f)", ctx.goldDiffAt14, actualCsPerMin, bench.expectedCsPerMin));
+        res.setPillar("LANE_ECO", pLane, laneEcoWeight, String.format("Diff 14m: %dg, CS/m: %.1f (Att: %.1f)", ctx.goldDiffAt14, actualCsPerMin, bench.expectedCsPerMin));
 
-        // --- PILIER 2 : COMBAT & FLANK (30%) ---
-        // Le Toplaner a naturellement moins de KP. 40% est un standard très solide pour eux.
+        // Détection lane sous pression (1v2 : ganks répétés sans perdre les duels)
+        boolean topUnderPressure = ctx.earlyGankDeaths >= 2 && ctx.earlySoloDeaths == 0;
+        if (topUnderPressure) {
+            res.addMacroInfo("Lane sous pression jungler (" + ctx.earlyGankDeaths + " ganks subis avant 14 min, duels gagnés).");
+        }
+
+        // --- PILIER 2 : COMBAT & FLANK (30%) — Kill Impact Score ---
         double kpScore = calculateNormalizedScore(ctx.killParticipation, ScoringConstants.Top.KP_EXPECTED, ScoringConstants.Top.KP_SENSITIVITY);
-        double kdaScore = calculateNormalizedScore(ctx.kda, bench.expectedKda, ScoringConstants.Top.KDA_SENSITIVITY);
+        double[] combatWeightsTop = getCombatActivityWeights(champClass);
+        double killActivityTop = ctx.kills * combatWeightsTop[0] + ctx.assists * combatWeightsTop[1];
+        double combatActivityScoreTop = calculateNormalizedScore(killActivityTop,
+                ScoringConstants.Top.CombatActivity.EXPECTED_ACTIVITY, ScoringConstants.Top.CombatActivity.ACTIVITY_SENSITIVITY);
 
-        double pCombat = (kpScore * ScoringConstants.Top.KP_SCORE_WEIGHT) + (kdaScore * ScoringConstants.Top.KDA_SCORE_WEIGHT);
+        double pCombat = (kpScore * ScoringConstants.Top.KP_SCORE_WEIGHT) + (combatActivityScoreTop * ScoringConstants.Top.ACTIVITY_SCORE_WEIGHT);
         if (ctx.bountyGold > 0) pCombat += Math.min(BOUNTY_GOLD_BONUS_CAP, ctx.bountyGold / BOUNTY_GOLD_DIVISOR);
-
-        res.setPillar("COMBAT", pCombat, ScoringConstants.Top.COMBAT_WEIGHT, String.format("KP: %.0f%%, KDA: %.2f (Att: %.2f)", ctx.killParticipation * 100, ctx.kda, bench.expectedKda));
+        res.setPillar("COMBAT", pCombat, ScoringConstants.Top.COMBAT_WEIGHT, String.format("KP: %.0f%%, Kills: %d, Assists: %d", ctx.killParticipation * 100, ctx.kills, ctx.assists));
 
         // --- PILIER 3 : IDENTITÉ DE CLASSE & PRESSION (35%) ---
         double pClass = BASE_SCORE;
@@ -326,50 +384,52 @@ public class ScoreCalculator {
             classReason = String.format("%d SoloKills, %.0f DPM, %.0f%% Tanking", ctx.soloKills, ctx.damagePerMinute, ctx.damageTakenOnTeamPercentage * 100);
         }
 
-        res.setPillar("MACRO_CLASS", pClass, ScoringConstants.Top.MACRO_CLASS_WEIGHT, classReason);
+        res.setPillar("MACRO_CLASS", pClass, macroClassWeight, classReason);
 
         // --- SYNERGIES ET VÉRIFICATIONS ---
-        if (pLane >= ScoringConstants.Top.TYRAN_LANE_SCORE_THRESHOLD && soloKillScore >= ScoringConstants.Top.TYRAN_SOLO_KILL_SCORE_THRESHOLD && pClass >= ScoringConstants.Top.TYRAN_CLASS_SCORE_THRESHOLD) {
-            res.addSynergy(ScoringConstants.Top.TYRAN_BONUS, "Le Tyran de la Lane (Écrasement total en 1v1 et conversion de l'avantage)");
-        }
         if (ctx.sacrificialDeaths >= ScoringConstants.Top.SACRIFICIAL_DEATHS_THRESHOLD && ctx.damageDealtToObjectives >= ScoringConstants.Top.PRESSURE_OBJECTIVE_DAMAGE_THRESHOLD) {
             res.addSynergy(ScoringConstants.Top.PRESSURE_BONUS, "Pression Asphyxiante (A attiré toute l'équipe ennemie pour faire gagner le reste de la carte)");
         }
         if (ctx.earlySoloDeaths >= ScoringConstants.Top.ABYSS_EARLY_DEATHS_THRESHOLD && pLane <= ScoringConstants.Top.ABYSS_LANE_SCORE_THRESHOLD) {
-            res.addSynergy(ScoringConstants.Top.ABYSS_MALUS, "Gouffre Absolu (A détruit les chances de victoire de son équipe dès les 10 premières minutes)");
+            if (topUnderPressure) {
+                res.addSynergy(ScoringConstants.Top.ABYSS_MALUS / 2.0, "Gouffre Absolu Atténué (forte pression de gank, mais duels perdus quand même)");
+            } else {
+                res.addSynergy(ScoringConstants.Top.ABYSS_MALUS, "Gouffre Absolu (A détruit les chances de victoire de son équipe dès les 10 premières minutes)");
+            }
         }
         
         applyTemporalSynergies(ctx, res);
     }
 
-    private static void calculateJungleScore(MatchDataExtractor.PlayerContext ctx, MatchDataExtractor.PlayerContext oppCtx, String champClass, RoleBenchmarks bench, double durationMin, ScoreResult res, MatchDataExtractor.TeamCompositionProfile enemyComp) {
+    private static void calculateJungleScore(MatchDataExtractor.PlayerContext ctx, MatchDataExtractor.PlayerContext oppCtx, String champClass, double scalingFactor, RoleBenchmarks bench, double durationMin, ScoreResult res, MatchDataExtractor.TeamCompositionProfile enemyComp) {
 
-        // --- PILIER 1 : PATHING, ÉCONOMIE & CONTRÔLE EARLY (35%) ---
-        // 1. Le Farming (vs Benchmark)
+        double pathingWeight = ScoringConstants.Jungle.PATHING_ECO_WEIGHT * (1 - scalingFactor * SCALING_FACTOR_LANE_COEFFICIENT);
+        double macroClassWeight = 1.0 - ScoringConstants.Jungle.IMPACT_WEIGHT - pathingWeight;
+
+        // --- PILIER 1 : PATHING, ÉCONOMIE & CONTRÔLE EARLY ---
         double actualCsPerMin = ctx.totalCs / durationMin;
         double csScore = calculateNormalizedScore(actualCsPerMin, bench.expectedCsPerMin, ScoringConstants.Jungle.CS_SENSITIVITY);
 
-        // 2. L'Avantage en Or Pur
-        double goldScore = calculateNormalizedScore(ctx.goldDiffAt14, 0, ScoringConstants.Jungle.GOLD_SENSITIVITY);
+        double goldScore = durationMin < 14.0 ? 50.0
+                : calculateNormalizedScore(ctx.goldDiffAt14, 0, ScoringConstants.Jungle.GOLD_SENSITIVITY);
 
-        // 3. Le Counter-Jungle (Extrait spécifique de la timeline)
         double invadeVal = (ctx.enemyJungleKills * INVADE_KILL_MULTIPLIER) + (ctx.scuttleCrabs * INVADE_SCUTTLE_MULTIPLIER);
         double invadeScore = calculateNormalizedScore(invadeVal, ScoringConstants.Jungle.INVADE_EXPECTED, ScoringConstants.Jungle.INVADE_SENSITIVITY);
 
-        // On fusionne tout ça : Le CS, l'Or et l'Invade
         double pPathing = (csScore * ScoringConstants.Jungle.CS_SCORE_WEIGHT) + (goldScore * ScoringConstants.Jungle.GOLD_SCORE_WEIGHT) + (invadeScore * ScoringConstants.Jungle.INVADE_WEIGHT);
+        res.setPillar("PATHING_ECO", pPathing, pathingWeight, String.format("Diff 14m: %dg, CS/m: %.1f (Att: %.1f), Invade: %d camps", ctx.goldDiffAt14, actualCsPerMin, bench.expectedCsPerMin, ctx.enemyJungleKills));
 
-        res.setPillar("PATHING_ECO", pPathing, ScoringConstants.Jungle.PATHING_ECO_WEIGHT, String.format("Diff 14m: %dg, CS/m: %.1f (Att: %.1f), Invade: %d camps", ctx.goldDiffAt14, actualCsPerMin, bench.expectedCsPerMin, ctx.enemyJungleKills));
-
-        // --- PILIER 2 : IMPACT & PRÉSENCE (35%) ---
-        // Le Jungler dicte l'early/mid game. Le KP est le roi absolu ici.
+        // --- PILIER 2 : IMPACT & PRÉSENCE (35%) — Kill Impact Score ---
         double kpScore = calculateNormalizedScore(ctx.killParticipation, ScoringConstants.Jungle.KP_EXPECTED, ScoringConstants.Jungle.KP_SENSITIVITY);
-        double kdaScore = calculateNormalizedScore(ctx.kda, bench.expectedKda, ScoringConstants.Jungle.KDA_SENSITIVITY);
+        double[] combatWeightsJgl = getCombatActivityWeights(champClass);
+        double killActivityJgl = ctx.kills * combatWeightsJgl[0] + ctx.assists * combatWeightsJgl[1];
+        double combatActivityScoreJgl = calculateNormalizedScore(killActivityJgl,
+                ScoringConstants.Jungle.CombatActivity.EXPECTED_ACTIVITY, ScoringConstants.Jungle.CombatActivity.ACTIVITY_SENSITIVITY);
 
-        double pCombat = (kpScore * ScoringConstants.Jungle.KP_SCORE_WEIGHT) + (kdaScore * ScoringConstants.Jungle.KDA_SCORE_WEIGHT);
+        double pCombat = (kpScore * ScoringConstants.Jungle.KP_SCORE_WEIGHT) + (combatActivityScoreJgl * ScoringConstants.Jungle.ACTIVITY_SCORE_WEIGHT);
         if (ctx.bountyGold > 0) pCombat += Math.min(BOUNTY_GOLD_BONUS_CAP, ctx.bountyGold / BOUNTY_GOLD_DIVISOR);
 
-        res.setPillar("IMPACT", pCombat, ScoringConstants.Jungle.IMPACT_WEIGHT, String.format("KP: %.0f%%, KDA: %.2f (Att: %.2f)", ctx.killParticipation * 100, ctx.kda, bench.expectedKda));
+        res.setPillar("IMPACT", pCombat, ScoringConstants.Jungle.IMPACT_WEIGHT, String.format("KP: %.0f%%, Kills: %d, Assists: %d", ctx.killParticipation * 100, ctx.kills, ctx.assists));
 
         // --- PILIER 3 : MACRO, VISION & IDENTITÉ DE CLASSE (30%) ---
         // Tous les junglers doivent warder. On normalise la vision d'abord.
@@ -402,6 +462,13 @@ public class ScoreCalculator {
             pClass = (baseVisionScore * ScoringConstants.Jungle.Enchanter.VISION_WEIGHT) + (healScore * ScoringConstants.Jungle.Enchanter.HEAL_WEIGHT) + (saveScore * ScoringConstants.Jungle.Enchanter.SAVE_ALLY_WEIGHT);
             classReason = String.format("%d Sauvetages, Vis/m: %.1f (Att: %.1f)", ctx.saveAllyFromDeath, actualVisionPerMin, bench.expectedVisionPerMin);
 
+        } else if (champClass.equals(ADC)) {
+            // Crit jungle (Kindred, Graves) : DPM prioritaire, objectifs, vision secondaire
+            double objScore = calculateNormalizedScore(ctx.damageDealtToObjectives, ScoringConstants.Jungle.Fighter.OBJECTIVE_DAMAGE_EXPECTED, ScoringConstants.Jungle.Fighter.OBJECTIVE_DAMAGE_SENSITIVITY);
+            double dpmScore = calculateNormalizedScore(ctx.damagePerMinute, bench.expectedDpm, ScoringConstants.Jungle.Fighter.DPM_SENSITIVITY);
+            pClass = (dpmScore * 0.55) + (objScore * 0.35) + (baseVisionScore * 0.10);
+            classReason = String.format("DPM: %.0f (Att: %.0f), Dégâts Obj: %d", ctx.damagePerMinute, bench.expectedDpm, ctx.damageDealtToObjectives);
+
         } else {
             // Combattants (Lee Sin, Viego, Xin Zhao) : Escarmouches, Dégâts, Dégâts aux Drakes/Hérauts
             double objScore = calculateNormalizedScore(ctx.damageDealtToObjectives, ScoringConstants.Jungle.Fighter.OBJECTIVE_DAMAGE_EXPECTED, ScoringConstants.Jungle.Fighter.OBJECTIVE_DAMAGE_SENSITIVITY);
@@ -410,13 +477,9 @@ public class ScoreCalculator {
             classReason = String.format("Dégâts Obj: %d, DPM: %.0f", ctx.damageDealtToObjectives, ctx.damagePerMinute);
         }
 
-        res.setPillar("MACRO_CLASS", pClass, ScoringConstants.Jungle.MACRO_CLASS_WEIGHT, classReason);
+        res.setPillar("MACRO_CLASS", pClass, macroClassWeight, classReason);
 
         // --- SYNERGIES ET VÉRIFICATIONS ---
-        // On ne donne plus +15 pts pour un steal aléatoire. On récompense la vraie domination.
-        if (ctx.enemyJungleKills >= (bench.expectedCsPerMin * 3) && ctx.goldDiffAt14 >= ScoringConstants.Jungle.SMOTHER_GOLD_DIFF_THRESHOLD) {
-            res.addSynergy(ScoringConstants.Jungle.SMOTHER_BONUS, "L'Étouffeur (Domination totale de la carte et privation de ressources du jungler adverse)");
-        }
         if (ctx.throwDeaths >= ScoringConstants.Jungle.NO_SMITE_THROW_DEATHS_THRESHOLD) {
             res.addSynergy(ScoringConstants.Jungle.NO_SMITE_MALUS, "Absence de Smite (Morts isolées offrant des objectifs gratuits à l'ennemi)");
         }
@@ -424,30 +487,35 @@ public class ScoreCalculator {
         applyTemporalSynergies(ctx, res);
     }
 
-    private static void calculateMidScore(MatchDataExtractor.PlayerContext ctx, MatchDataExtractor.PlayerContext oppCtx, String champClass, RoleBenchmarks bench, double durationMin, ScoreResult res, MatchDataExtractor.TeamCompositionProfile enemyComp) {
+    private static void calculateMidScore(MatchDataExtractor.PlayerContext ctx, MatchDataExtractor.PlayerContext oppCtx, String champClass, double scalingFactor, RoleBenchmarks bench, double durationMin, ScoreResult res, MatchDataExtractor.TeamCompositionProfile enemyComp) {
 
-        // --- PILIER 1 : LANE & ÉCONOMIE (35%) ---
+        // Dynamic pillar weights: high scaling_factor → less lane, more class identity
+        double laneEcoWeight = ScoringConstants.Mid.LANE_ECO_WEIGHT * (1 - scalingFactor * SCALING_FACTOR_LANE_COEFFICIENT);
+        double macroClassWeight = 1.0 - ScoringConstants.Mid.COMBAT_WEIGHT - laneEcoWeight;
+
         double actualCsPerMin = ctx.totalCs / durationMin;
         double csScore = calculateNormalizedScore(actualCsPerMin, bench.expectedCsPerMin, ScoringConstants.Mid.CS_SENSITIVITY);
-        double goldScore = calculateNormalizedScore(ctx.goldDiffAt14, 0, ScoringConstants.Mid.GOLD_SENSITIVITY);
+        double goldScore = durationMin < 14.0 ? 50.0
+                : calculateNormalizedScore(ctx.goldDiffAt14, 0, ScoringConstants.Mid.GOLD_SENSITIVITY);
 
         double pLane;
         if (champClass.equals(ASSASSIN)) {
-            // Un assassin sacrifie souvent un peu de CS pour roam
             pLane = (csScore * ScoringConstants.Mid.Assassin.CS_SCORE_WEIGHT) + (goldScore * ScoringConstants.Mid.Assassin.GOLD_SCORE_WEIGHT);
         } else {
-            // Les Mages et Combattants Scaling dépendent vitalement du farm
             pLane = (csScore * ScoringConstants.Mid.Default.CS_SCORE_WEIGHT) + (goldScore * ScoringConstants.Mid.Default.GOLD_SCORE_WEIGHT);
         }
-        res.setPillar("LANE_ECO", pLane, ScoringConstants.Mid.LANE_ECO_WEIGHT, String.format("Diff 14m: %dg, CS/m: %.1f (Att: %.1f)", ctx.goldDiffAt14, actualCsPerMin, bench.expectedCsPerMin));
+        res.setPillar("LANE_ECO", pLane, laneEcoWeight, String.format("Diff 14m: %dg, CS/m: %.1f (Att: %.1f)", ctx.goldDiffAt14, actualCsPerMin, bench.expectedCsPerMin));
 
-        // --- PILIER 2 : IMPACT & COMBAT GLOBAL (30%) ---
-        double kdaScore = calculateNormalizedScore(ctx.kda, bench.expectedKda, ScoringConstants.Mid.KDA_SENSITIVITY);
+        // --- PILIER 2 : IMPACT & COMBAT GLOBAL --- Kill Impact Score
         double kpScore = calculateNormalizedScore(ctx.killParticipation, ScoringConstants.Mid.KP_EXPECTED, ScoringConstants.Mid.KP_SENSITIVITY);
+        double[] combatWeightsMid = getCombatActivityWeights(champClass);
+        double killActivityMid = ctx.kills * combatWeightsMid[0] + ctx.assists * combatWeightsMid[1];
+        double combatActivityScoreMid = calculateNormalizedScore(killActivityMid,
+                ScoringConstants.Mid.CombatActivity.EXPECTED_ACTIVITY, ScoringConstants.Mid.CombatActivity.ACTIVITY_SENSITIVITY);
 
-        double pCombat = (kdaScore * ScoringConstants.Mid.KDA_SCORE_WEIGHT) + (kpScore * ScoringConstants.Mid.KP_SCORE_WEIGHT);
-        if (ctx.bountyGold > 0) pCombat += Math.min(BOUNTY_GOLD_BONUS_CAP, ctx.bountyGold / BOUNTY_GOLD_DIVISOR); // Bonus pour les shutdowns pris
-        res.setPillar("COMBAT", pCombat, ScoringConstants.Mid.COMBAT_WEIGHT, String.format("KP: %.0f%%, KDA: %.2f (Att: %.2f)", ctx.killParticipation * 100, ctx.kda, bench.expectedKda));
+        double pCombat = (combatActivityScoreMid * ScoringConstants.Mid.ACTIVITY_SCORE_WEIGHT) + (kpScore * ScoringConstants.Mid.KP_SCORE_WEIGHT);
+        if (ctx.bountyGold > 0) pCombat += Math.min(BOUNTY_GOLD_BONUS_CAP, ctx.bountyGold / BOUNTY_GOLD_DIVISOR);
+        res.setPillar("COMBAT", pCombat, ScoringConstants.Mid.COMBAT_WEIGHT, String.format("KP: %.0f%%, Kills: %d, Assists: %d", ctx.killParticipation * 100, ctx.kills, ctx.assists));
 
         // --- PILIER 3 : IDENTITÉ DE CLASSE & MACRO (35%) ---
         double pClass = BASE_SCORE;
@@ -502,12 +570,9 @@ public class ScoreCalculator {
             pClass = dpmScore;
             classReason = String.format("DPM: %.0f", ctx.damagePerMinute);
         }
-        res.setPillar("MACRO_CLASS", pClass, ScoringConstants.Mid.MACRO_CLASS_WEIGHT, classReason);
+        res.setPillar("MACRO_CLASS", pClass, macroClassWeight, classReason);
 
-        // --- SYNERGIES ET VÉRIFICATIONS ---
-        if (champClass.equals(ASSASSIN) && ctx.earlyRoamTakedowns >= ScoringConstants.Mid.TERROR_ROAM_TAKEDOWNS_THRESHOLD && pLane >= ScoringConstants.Mid.TERROR_LANE_SCORE_THRESHOLD) {
-            res.addSynergy(ScoringConstants.Mid.TERROR_BONUS, "Terreur Globale (Roams dévastateurs sans sacrifier sa propre lane)");
-        }
+        // --- SYNERGIES ---
         if ((champClass.equals(MAGE) || champClass.equals(COMBATTANT_ECLAIR)) && csScore >= ScoringConstants.Mid.HYPERSCALING_CS_SCORE_THRESHOLD && dpmScore >= ScoringConstants.Mid.HYPERSCALING_DPM_SCORE_THRESHOLD) {
             res.addSynergy(ScoringConstants.Mid.HYPERSCALING_BONUS, "Hyper-Scaling validé (Conversion parfaite de l'or en dégâts)");
         }
@@ -518,29 +583,34 @@ public class ScoreCalculator {
         applyTemporalSynergies(ctx, res);
     }
 
-    private static void calculateAdcScore(MatchDataExtractor.PlayerContext ctx, MatchDataExtractor.PlayerContext oppCtx, String champClass, RoleBenchmarks bench, double durationMin, ScoreResult res, MatchDataExtractor.TeamCompositionProfile enemyComp) {
+    private static void calculateAdcScore(MatchDataExtractor.PlayerContext ctx, MatchDataExtractor.PlayerContext oppCtx, String champClass, double scalingFactor, RoleBenchmarks bench, double durationMin, ScoreResult res, MatchDataExtractor.TeamCompositionProfile enemyComp) {
 
-        // --- PILIER 1 : LANE & ÉCONOMIE (35%) ---
-        // Un ADC vit et meurt par son farm. On croise le Diff Gold, le CS/min.
+        double laneEcoWeight = ScoringConstants.Adc.LANE_ECO_WEIGHT * (1 - scalingFactor * SCALING_FACTOR_LANE_COEFFICIENT);
+        double macroSiegeWeight = 1.0 - ScoringConstants.Adc.COMBAT_WEIGHT - laneEcoWeight;
+
+        // --- PILIER 1 : LANE & ÉCONOMIE ---
         double actualCsPerMin = ctx.totalCs / durationMin;
         double csScore = calculateNormalizedScore(actualCsPerMin, bench.expectedCsPerMin, ScoringConstants.Adc.CS_SENSITIVITY);
+        double goldScore = durationMin < 14.0 ? 50.0
+                : calculateNormalizedScore(ctx.goldDiffAt14, 0, ScoringConstants.Adc.GOLD_SENSITIVITY);
 
-        double goldScore = calculateNormalizedScore(ctx.goldDiffAt14, 0, ScoringConstants.Adc.GOLD_SENSITIVITY);
-
-        // Le CS et le Gold dictent la lane de l'ADC
         double pLane = (csScore * ScoringConstants.Adc.CS_SCORE_WEIGHT) + (goldScore * ScoringConstants.Adc.GOLD_SCORE_WEIGHT);
-        res.setPillar("LANE_ECO", pLane, ScoringConstants.Adc.LANE_ECO_WEIGHT, String.format("CS/m: %.1f (Att: %.1f), Diff 14m: %dg", actualCsPerMin, bench.expectedCsPerMin, ctx.goldDiffAt14));
+        res.setPillar("LANE_ECO", pLane, laneEcoWeight, String.format("CS/m: %.1f (Att: %.1f), Diff 14m: %dg", actualCsPerMin, bench.expectedCsPerMin, ctx.goldDiffAt14));
 
-        // --- PILIER 2 : COMBAT & DÉGÂTS (35%) ---
-        // Le DPM est le juge de paix. Le KDA sanctionne l'efficacité, et le KP jauge la présence.
+        // --- PILIER 2 : COMBAT & DÉGÂTS (35%) — DPM + Kill Impact Score ---
         double dpmScore = calculateNormalizedScore(ctx.damagePerMinute, bench.expectedDpm, ScoringConstants.Adc.DPM_SENSITIVITY);
-        double kdaScore = calculateNormalizedScore(ctx.kda, bench.expectedKda, ScoringConstants.Adc.KDA_SENSITIVITY);
         double kpScore = calculateNormalizedScore(ctx.killParticipation, ScoringConstants.Adc.KP_EXPECTED, ScoringConstants.Adc.KP_SENSITIVITY);
+        // ADC : kills comptent double (leur rôle principal), assists peu (ils doivent finir)
+        double killActivityAdc = ctx.kills * 2.0 + ctx.assists * 0.5;
+        double combatActivityScoreAdc = calculateNormalizedScore(killActivityAdc,
+                ScoringConstants.Adc.CombatActivity.EXPECTED_ACTIVITY, ScoringConstants.Adc.CombatActivity.ACTIVITY_SENSITIVITY);
 
-        double pCombat = (dpmScore * ScoringConstants.Adc.DPM_SCORE_WEIGHT) + (kdaScore * ScoringConstants.Adc.KDA_SCORE_WEIGHT) + (kpScore * ScoringConstants.Adc.KP_SCORE_WEIGHT);
+        double pCombat = (dpmScore * ScoringConstants.Adc.DPM_SCORE_WEIGHT)
+                + (combatActivityScoreAdc * ScoringConstants.Adc.ACTIVITY_SCORE_WEIGHT)
+                + (kpScore * ScoringConstants.Adc.KP_SCORE_WEIGHT);
         if (ctx.bountyGold > 0) pCombat += Math.min(BOUNTY_GOLD_BONUS_CAP, ctx.bountyGold / BOUNTY_GOLD_DIVISOR);
 
-        res.setPillar("COMBAT", pCombat, ScoringConstants.Adc.COMBAT_WEIGHT, String.format("DPM: %.0f (Att: %.0f), KDA: %.2f", ctx.damagePerMinute, bench.expectedDpm, ctx.kda));
+        res.setPillar("COMBAT", pCombat, ScoringConstants.Adc.COMBAT_WEIGHT, String.format("DPM: %.0f (Att: %.0f), Kills: %d, Assists: %d", ctx.damagePerMinute, bench.expectedDpm, ctx.kills, ctx.assists));
 
         // --- PILIER 3 : MACRO & SIÈGE (30%) ---
         // Un ADC doit faire tomber les tours. S'il joue Mage (Ziggs), on tolère moins de dégâts tourelles au profit du DPM.
@@ -556,7 +626,7 @@ public class ScoreCalculator {
         } else {
             pClass = (objScore * ScoringConstants.Adc.Default.OBJECTIVE_DAMAGE_WEIGHT) + (visionScoreNorm * ScoringConstants.Adc.Default.VISION_SCORE_WEIGHT);
         }
-        res.setPillar("MACRO_SIEGE", pClass, ScoringConstants.Adc.MACRO_SIEGE_WEIGHT, String.format("Dégâts Tours: %d, Vis/m: %.1f", ctx.damageDealtToObjectives, actualVisionPerMin));
+        res.setPillar("MACRO_SIEGE", pClass, macroSiegeWeight, String.format("Dégâts Tours: %d, Vis/m: %.1f", ctx.damageDealtToObjectives, actualVisionPerMin));
 
         // --- SYNERGIES ET MALUS CRITIQUES ---
         if (pCombat >= ScoringConstants.Adc.GLASS_CANNON_COMBAT_SCORE_THRESHOLD) {
@@ -571,22 +641,27 @@ public class ScoreCalculator {
         applyTemporalSynergies(ctx, res);
     }
 
-    private static void calculateSupportScore(MatchDataExtractor.PlayerContext ctx, MatchDataExtractor.PlayerContext oppCtx, String champClass, RoleBenchmarks bench, double durationMin, ScoreResult res, MatchDataExtractor.TeamCompositionProfile enemyComp) {
+    private static void calculateSupportScore(MatchDataExtractor.PlayerContext ctx, MatchDataExtractor.PlayerContext oppCtx, String champClass, double scalingFactor, RoleBenchmarks bench, double durationMin, ScoreResult res, MatchDataExtractor.TeamCompositionProfile enemyComp) {
 
-        // --- PILIER 1 : LANE (30%) ---
-        // On utilise l'avantage d'or
-        double goldScore = calculateNormalizedScore(ctx.goldDiffAt14, 0, ScoringConstants.Support.GOLD_SENSITIVITY);
+        double laneWeight = ScoringConstants.Support.LANE_WEIGHT * (1 - scalingFactor * SCALING_FACTOR_LANE_COEFFICIENT);
+        double utilityWeight = 1.0 - ScoringConstants.Support.IMPACT_WEIGHT - laneWeight;
+
+        // --- PILIER 1 : LANE ---
+        double goldScore = durationMin < 14.0 ? 50.0
+                : calculateNormalizedScore(ctx.goldDiffAt14, 0, ScoringConstants.Support.GOLD_SENSITIVITY);
         double pLane = goldScore;
+        res.setPillar("LANE", pLane, laneWeight, String.format("Diff 14m: %dg", ctx.goldDiffAt14));
 
-        res.setPillar("LANE", pLane, ScoringConstants.Support.LANE_WEIGHT, String.format("Diff 14m: %dg", ctx.goldDiffAt14));
-
-        // --- PILIER 2 : IMPACT & KDA (35%) ---
-        // Croisement du KP pur et du KDA par rapport à la moyenne de l'élo
+        // --- PILIER 2 : IMPACT (35%) — Kill Impact Score ---
         double kpScore = calculateNormalizedScore(ctx.killParticipation, ScoringConstants.Support.KP_EXPECTED, ScoringConstants.Support.KP_SENSITIVITY);
-        double kdaScore = calculateNormalizedScore(ctx.kda, bench.expectedKda, ScoringConstants.Support.KDA_SENSITIVITY);
+        // Les supports assistent énormément et killent rarement : poids assists très élevé
+        double[] combatWeightsSup = getCombatActivityWeights(champClass);
+        double killActivitySup = ctx.kills * combatWeightsSup[0] + ctx.assists * combatWeightsSup[1];
+        double combatActivityScoreSup = calculateNormalizedScore(killActivitySup,
+                ScoringConstants.Support.CombatActivity.EXPECTED_ACTIVITY, ScoringConstants.Support.CombatActivity.ACTIVITY_SENSITIVITY);
 
-        double pCombat = (kpScore * ScoringConstants.Support.KP_SCORE_WEIGHT) + (kdaScore * ScoringConstants.Support.KDA_SCORE_WEIGHT);
-        res.setPillar("IMPACT", pCombat, ScoringConstants.Support.IMPACT_WEIGHT, String.format("KP: %.0f%%, KDA: %.2f (Attendu: %.2f)", ctx.killParticipation * 100, ctx.kda, bench.expectedKda));
+        double pCombat = (kpScore * ScoringConstants.Support.KP_SCORE_WEIGHT) + (combatActivityScoreSup * ScoringConstants.Support.ACTIVITY_SCORE_WEIGHT);
+        res.setPillar("IMPACT", pCombat, ScoringConstants.Support.IMPACT_WEIGHT, String.format("KP: %.0f%%, Kills: %d, Assists: %d", ctx.killParticipation * 100, ctx.kills, ctx.assists));
 
         // --- PILIER 3 : VISION & UTILITÉ (35%) ---
         double actualVisionPerMin = ctx.visionScore / durationMin;
@@ -623,21 +698,26 @@ public class ScoreCalculator {
             classReason = String.format("Senna Hybrid - Vis/m: %.1f, DPM: %.0f, Heal: %.0f", actualVisionPerMin, ctx.damagePerMinute, ctx.effectiveHealAndShielding);
 
         } else if (cleanName.contains("pyke") || cleanName.contains("pantheon")) {
-            // Assassin Support : KDA + DPM + Vision
+            // Assassin Support : Kill Impact Score (kills comptent) + DPM + Vision
             double dpmScore = calculateNormalizedScore(ctx.damagePerMinute, bench.expectedDpm, ScoringConstants.Support.Assassin.DPM_SENSITIVITY);
-            double kdaValScore = calculateNormalizedScore(ctx.kda, bench.expectedKda, ScoringConstants.Support.KDA_SENSITIVITY); // Using global KDA sensitivity or define specific one
-            pClass = (baseVisionScore * ScoringConstants.Support.Assassin.VISION_WEIGHT) + (kdaValScore * ScoringConstants.Support.Assassin.KDA_WEIGHT) + (dpmScore * ScoringConstants.Support.Assassin.DPM_WEIGHT);
-            classReason = String.format("Carry Support - Vis/m: %.1f, KDA: %.2f, DPM: %.0f", actualVisionPerMin, ctx.kda, ctx.damagePerMinute);
+            // Pyke/Pantheon sont jugés sur leurs kills plus que les autres supports
+            double killActivityCarrySup = ctx.kills * 1.5 + ctx.assists * 1.2;
+            double carrySupActivityScore = calculateNormalizedScore(killActivityCarrySup,
+                    ScoringConstants.Support.CombatActivity.CARRY_EXPECTED_ACTIVITY, ScoringConstants.Support.CombatActivity.CARRY_ACTIVITY_SENSITIVITY);
+            pClass = (baseVisionScore * ScoringConstants.Support.Assassin.VISION_WEIGHT) + (carrySupActivityScore * ScoringConstants.Support.Assassin.KDA_WEIGHT) + (dpmScore * ScoringConstants.Support.Assassin.DPM_WEIGHT);
+            classReason = String.format("Carry Support - Vis/m: %.1f, Kills: %d, Assists: %d, DPM: %.0f", actualVisionPerMin, ctx.kills, ctx.assists, ctx.damagePerMinute);
 
         } else if (champClass.equals(ENCHANTER)) {
-            // NERF MASSIF : L'Enchanteur vit par ses soins, mais c'est du "stat padding" facile.
-            // 1. On monte l'attente drastiquement (10 000 Heal/Shield = 50 pts)
             double healScore = calculateNormalizedScore(ctx.effectiveHealAndShielding, ScoringConstants.Support.Enchanter.HEAL_EXPECTED, ScoringConstants.Support.Enchanter.HEAL_SENSITIVITY);
             double saveScore = calculateNormalizedScore(ctx.saveAllyFromDeath, ScoringConstants.Support.Enchanter.SAVE_ALLY_EXPECTED, ScoringConstants.Support.Enchanter.SAVE_ALLY_SENSITIVITY);
 
-            // 2. LE PLAFOND DE VERRE : On force le maximum à 80/100. Un enchanteur ne peut plus "casser" l'algorithme.
             pClass = (baseVisionScore * ScoringConstants.Support.Enchanter.VISION_WEIGHT) + (healScore * ScoringConstants.Support.Enchanter.HEAL_WEIGHT) + (saveScore * ScoringConstants.Support.Enchanter.SAVE_ALLY_WEIGHT);
-            // REMOVED CAP: if (pClass > ScoringConstants.Support.Enchanter.SCORE_CAP) pClass = ScoringConstants.Support.Enchanter.SCORE_CAP;
+
+            // Pénalité "soins dans le vent" : heal élevé mais personne de sauvé = impact limité
+            if (ctx.saveAllyFromDeath == 0 && durationMin >= 20.0) {
+                pClass *= ScoringConstants.Support.Enchanter.NO_SAVE_PENALTY_MULTIPLIER;
+                res.addMacroInfo("Enchanteur sans sauvetage décisif : soins potentiellement peu impactants.");
+            }
 
             classReason = String.format("Vis/m: %.1f, %.0f Heal/Shield, %d Sauvetages", actualVisionPerMin, ctx.effectiveHealAndShielding, ctx.saveAllyFromDeath);
         } else if (champClass.equals(TANK)) {
@@ -652,18 +732,31 @@ public class ScoreCalculator {
             double dpmScore = calculateNormalizedScore(ctx.damagePerMinute, bench.expectedDpm, ScoringConstants.Support.Mage.DPM_SENSITIVITY);
             pClass = (baseVisionScore * ScoringConstants.Support.Mage.VISION_WEIGHT) + (dpmScore * ScoringConstants.Support.Mage.DPM_WEIGHT);
             classReason = String.format("Vis/m: %.1f, DPM: %.0f", actualVisionPerMin, ctx.damagePerMinute);
+
+            // Malus "Mage Aveugle" : DPM élevé mais vision sacrifiée = a abandonné son rôle de vision
+            if (dpmScore >= ScoringConstants.Support.MAGE_BLIND_DPM_SCORE_THRESHOLD && visionScoreNorm < ScoringConstants.Support.MAGE_BLIND_VISION_SCORE_THRESHOLD) {
+                res.addSynergy(ScoringConstants.Support.MAGE_BLIND_MALUS, "Mage Aveugle (DPM élevé mais vision insuffisante, a sacrifié son rôle utilitaire)");
+            }
         }
 
-        res.setPillar("UTILITE_VISION", pClass, ScoringConstants.Support.UTILITY_VISION_WEIGHT, classReason);
+        res.setPillar("UTILITE_VISION", pClass, utilityWeight, classReason);
 
         // --- SYNERGIES ET VÉRIFICATIONS ---
-        if (ctx.sacrificialDeaths >= ScoringConstants.Support.BODYGUARD_SACRIFICIAL_DEATHS_THRESHOLD && pClass >= ScoringConstants.Support.BODYGUARD_CLASS_SCORE_THRESHOLD) res.addSynergy(ScoringConstants.Support.BODYGUARD_BONUS, "Garde du Corps Martyr");
+        if (ctx.sacrificialDeaths >= ScoringConstants.Support.BODYGUARD_SACRIFICIAL_DEATHS_THRESHOLD && pClass >= ScoringConstants.Support.BODYGUARD_CLASS_SCORE_THRESHOLD) {
+            res.addSynergy(ScoringConstants.Support.BODYGUARD_BONUS, "Garde du Corps Martyr");
+        }
 
         // La punition des supports aveugles
         if (visionScoreNorm < ScoringConstants.Support.BLIND_VISION_SCORE_THRESHOLD && durationMin > ScoringConstants.Support.BLIND_GAME_DURATION_THRESHOLD) {
             res.addSynergy(ScoringConstants.Support.BLIND_MALUS, "Lacune de Vision Critique (Moins de la moitié du score attendu)");
         }
-        
+
+        // Bonus "Convertisseur CC/Kill" : CC élevés + forte présence = le support crée réellement les conditions des kills
+        double ccScoreForBonus = calculateNormalizedScore(ctx.enemyChampionImmobilizations, 10.0, 5.0);
+        if (kpScore >= ScoringConstants.Support.CC_TO_KILL_KP_SCORE_THRESHOLD && ccScoreForBonus >= ScoringConstants.Support.CC_TO_KILL_CC_SCORE_THRESHOLD) {
+            res.addSynergy(ScoringConstants.Support.CC_TO_KILL_BONUS, "Convertisseur CC/Kill (CC élevés et forte présence combat = acteur direct des kills)");
+        }
+
         applyTemporalSynergies(ctx, res);
     }
 }

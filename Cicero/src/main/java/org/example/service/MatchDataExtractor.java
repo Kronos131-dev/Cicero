@@ -25,15 +25,121 @@ public class MatchDataExtractor {
         public double engageHardness;
     }
 
+    // Per-frame position + stats trajectory for a single player
+    public static class PlayerTrajectory {
+        public final int[] positionsX;
+        public final int[] positionsY;
+        public final int[] goldCumulative;
+        public final int[] xpCumulative;
+        public final int[] dmgChampsCumul;
+        public final int[] dmgTakenCumul;
+        public final int[] levels;
+        public int frameCount;
+
+        PlayerTrajectory(int capacity) {
+            positionsX    = new int[capacity];
+            positionsY    = new int[capacity];
+            goldCumulative = new int[capacity];
+            xpCumulative  = new int[capacity];
+            dmgChampsCumul = new int[capacity];
+            dmgTakenCumul  = new int[capacity];
+            levels         = new int[capacity];
+        }
+
+        void record(int x, int y, int gold, int xp, int dmgDone, int dmgTaken, int level) {
+            if (frameCount < positionsX.length) {
+                positionsX[frameCount]     = x;
+                positionsY[frameCount]     = y;
+                goldCumulative[frameCount] = gold;
+                xpCumulative[frameCount]   = xp;
+                dmgChampsCumul[frameCount] = dmgDone;
+                dmgTakenCumul[frameCount]  = dmgTaken;
+                levels[frameCount]         = level;
+                frameCount++;
+            }
+        }
+    }
+
+    // Enriched kill event: position + bounty (encodes victim fed-status) + victim gold at death
+    public static class RichKillEvent {
+        public final long timestamp;
+        public final int posX, posY;
+        public final int killerId, victimId;
+        public final List<Integer> assistIds;
+        /** Gold the killer collected (300 = normal, 600+ = shutdown) — encodes victim's threat level. */
+        public final int bountyCollected;
+        /** Victim's cumulative gold at the moment of death — cross-reference with avgTeamGold for fed-status. */
+        public final int victimTotalGoldAtDeath;
+
+        RichKillEvent(long ts, int x, int y, int killerId, int victimId,
+                      List<Integer> assists, int bounty, int victimGold) {
+            this.timestamp            = ts;
+            this.posX                 = x;
+            this.posY                 = y;
+            this.killerId             = killerId;
+            this.victimId             = victimId;
+            this.assistIds            = assists;
+            this.bountyCollected      = bounty;
+            this.victimTotalGoldAtDeath = victimGold;
+        }
+    }
+
+    // Ward placement event with position (for SupportImpactAnalyzer)
+    public static class WardEvent {
+        public final long timestamp;
+        public final int placerId, posX, posY;
+        public final String wardType;
+
+        WardEvent(long ts, int placerId, int x, int y, String wardType) {
+            this.timestamp = ts;
+            this.placerId  = placerId;
+            this.posX      = x;
+            this.posY      = y;
+            this.wardType  = wardType;
+        }
+    }
+
+    // Objective event with position (for WinEquityComputer + CausalAttributor)
+    public static class ObjectiveEvent {
+        public final long timestamp;
+        public final int posX, posY;
+        public final int killerId, killerTeamId;
+        public final String type;    // ELITE_MONSTER_KILL or BUILDING_KILL
+        public final String subType; // DRAGON, BARON_NASHOR, RIFTHERALD, TOWER_BUILDING, INHIBITOR_BUILDING …
+
+        ObjectiveEvent(long ts, int x, int y, int killerId, int killerTeamId,
+                       String type, String subType) {
+            this.timestamp    = ts;
+            this.posX         = x;
+            this.posY         = y;
+            this.killerId     = killerId;
+            this.killerTeamId = killerTeamId;
+            this.type         = type;
+            this.subType      = subType;
+        }
+    }
+
     public static class FullContext {
         public Map<String, PlayerContext> players;
         public TeamCompositionProfile blueTeamComp;
         public TeamCompositionProfile redTeamComp;
+        // V3-WEC enriched event streams
+        public List<RichKillEvent>    killEvents;
+        public List<WardEvent>        wardEvents;
+        public List<ObjectiveEvent>   objectiveEvents;
 
-        public FullContext(Map<String, PlayerContext> players, TeamCompositionProfile blueTeamComp, TeamCompositionProfile redTeamComp) {
-            this.players = players;
-            this.blueTeamComp = blueTeamComp;
-            this.redTeamComp = redTeamComp;
+        public FullContext(Map<String, PlayerContext> players,
+                           TeamCompositionProfile blueTeamComp,
+                           TeamCompositionProfile redTeamComp,
+                           List<RichKillEvent>    killEvents,
+                           List<WardEvent>        wardEvents,
+                           List<ObjectiveEvent>   objectiveEvents) {
+            this.players         = players;
+            this.blueTeamComp    = blueTeamComp;
+            this.redTeamComp     = redTeamComp;
+            this.killEvents      = killEvents;
+            this.wardEvents      = wardEvents;
+            this.objectiveEvents = objectiveEvents;
         }
     }
 
@@ -101,12 +207,14 @@ public class MatchDataExtractor {
         public double kda;
         public int totalCs;
 
-
         public int dragonTakedowns;
         public int baronTakedowns;
         public int heraldTakedowns;
 
         public boolean isHeavyLosingEarly = false;
+
+        // --- 📍 V3-WEC : Trajectoire positionnelle complète ---
+        public PlayerTrajectory trajectory;
     }
 
     // Classe interne pour représenter un événement de la timeline de manière riche
@@ -117,7 +225,7 @@ public class MatchDataExtractor {
         int victimId;
         int teamId; // L'équipe qui a réalisé l'action (Killer Team)
         List<Integer> assistingParticipantIds = new ArrayList<>();
-        
+
         // Pour les kills
         int victimTeamId;
 
@@ -143,7 +251,6 @@ public class MatchDataExtractor {
             }
         }
 
-        // Logique simple pour calculer les scores de menace. Peut être affinée.
         profile.tankiness = Math.min(1.0, (profile.tankCount * 0.4) + (profile.fighterCount * 0.15));
         profile.burstThreat = Math.min(1.0, (profile.assassinCount * 0.5) + (profile.mageCount * 0.2) + (profile.fighterCount * 0.1));
         profile.pokeThreat = Math.min(1.0, (profile.mageCount * 0.3) + (profile.adcCount * 0.2));
@@ -162,6 +269,11 @@ public class MatchDataExtractor {
         Map<String, PlayerContext> redTeamRoles = new HashMap<>();
         List<PlayerContext> blueTeamPlayers = new ArrayList<>();
         List<PlayerContext> redTeamPlayers = new ArrayList<>();
+
+        // V3-WEC enriched event lists
+        List<RichKillEvent>  killEvents      = new ArrayList<>();
+        List<WardEvent>      wardEvents      = new ArrayList<>();
+        List<ObjectiveEvent> objectiveEvents = new ArrayList<>();
 
         try {
             // =================================================================
@@ -186,7 +298,7 @@ public class MatchDataExtractor {
                 ctx.damageDealtToObjectives = p.optInt("damageDealtToObjectives");
                 ctx.damageSelfMitigated = p.optInt("damageSelfMitigated");
                 ctx.kda = ctx.deaths == 0 ? (ctx.kills + ctx.assists) : (double) (ctx.kills + ctx.assists) / ctx.deaths;
-                ctx.controlWardsPlaced = p.optInt("visionWardsBoughtInGame", 0); // Les pink wards
+                ctx.controlWardsPlaced = p.optInt("visionWardsBoughtInGame", 0);
                 ctx.totalCs = p.optInt("totalMinionsKilled", 0) + p.optInt("neutralMinionsKilled", 0);
 
                 // Challenges (La Mine d'Or de Riot)
@@ -231,7 +343,7 @@ public class MatchDataExtractor {
             }
 
             // =================================================================
-            // PASSAGE 2 : LECTURE DE LA TIMELINE (Causalité et Throws)
+            // PASSAGE 2 : LECTURE DE LA TIMELINE (Causalité, Positions, Events)
             // =================================================================
             if (rawTimeline != null && rawTimeline.has("info")) {
                 JSONArray frames = rawTimeline.getJSONObject("info").optJSONArray("frames");
@@ -240,56 +352,119 @@ public class MatchDataExtractor {
                     int blueEarlyKills = 0;
                     int redEarlyKills = 0;
 
+                    // Trajectory builders: one per participant, capacity 65 (enough for any game length)
+                    Map<Integer, PlayerTrajectory> trajectoryBuilders = new HashMap<>();
+                    for (PlayerContext ctx : byId.values()) {
+                        trajectoryBuilders.put(ctx.participantId, new PlayerTrajectory(65));
+                    }
+
+                    // Latest gold snapshot per participant (refreshed each frame, used for kill enrichment)
+                    Map<Integer, Integer> latestGold = new HashMap<>();
+
                     // 1. Extraction de tous les événements importants
                     for (int i = 0; i < frames.length(); i++) {
                         JSONObject frame = frames.getJSONObject(i);
-                        
-                        // A. Extraction du Duel à la Frame 14 (Golds exacts) - inchangé
-                        if (i == 14 && frame.has("participantFrames")) {
+
+                        // ---------------------------------------------------
+                        // A. Extract per-frame trajectory data (ALL frames)
+                        // ---------------------------------------------------
+                        if (frame.has("participantFrames")) {
                             JSONObject pFrames = frame.getJSONObject("participantFrames");
-                            for (PlayerContext bluePlayer : blueTeamRoles.values()) {
-                                PlayerContext redPlayer = redTeamRoles.get(bluePlayer.role);
-                                if (redPlayer != null && !bluePlayer.role.equals("NONE") &&
-                                        pFrames.has(String.valueOf(bluePlayer.participantId)) &&
-                                        pFrames.has(String.valueOf(redPlayer.participantId))) {
 
-                                    int blueGold = pFrames.getJSONObject(String.valueOf(bluePlayer.participantId)).optInt("totalGold", 0);
-                                    int redGold = pFrames.getJSONObject(String.valueOf(redPlayer.participantId)).optInt("totalGold", 0);
+                            for (int pid = 1; pid <= 10; pid++) {
+                                String key = String.valueOf(pid);
+                                if (!pFrames.has(key)) continue;
+                                JSONObject pf = pFrames.getJSONObject(key);
 
-                                    bluePlayer.goldDiffAt14 = blueGold - redGold;
-                                    redPlayer.goldDiffAt14 = redGold - blueGold;
+                                int gold = pf.optInt("totalGold", 0);
+                                latestGold.put(pid, gold);
+
+                                int x = 0, y = 0;
+                                JSONObject pos = pf.optJSONObject("position");
+                                if (pos != null) {
+                                    x = pos.optInt("x", 0);
+                                    y = pos.optInt("y", 0);
+                                }
+
+                                int dmgDone = 0, dmgTaken = 0;
+                                JSONObject dmgStats = pf.optJSONObject("damageStats");
+                                if (dmgStats != null) {
+                                    dmgDone  = dmgStats.optInt("totalDamageDoneToChampions", 0);
+                                    dmgTaken = dmgStats.optInt("totalDamageTaken", 0);
+                                }
+
+                                int xp    = pf.optInt("xp", 0);
+                                int level = pf.optInt("level", 0);
+
+                                PlayerTrajectory traj = trajectoryBuilders.get(pid);
+                                if (traj != null) traj.record(x, y, gold, xp, dmgDone, dmgTaken, level);
+                            }
+
+                            // Gold diff at frame 14 (existing logic, unchanged)
+                            if (i == 14) {
+                                for (PlayerContext bluePlayer : blueTeamRoles.values()) {
+                                    PlayerContext redPlayer = redTeamRoles.get(bluePlayer.role);
+                                    if (redPlayer != null && !bluePlayer.role.equals("NONE") &&
+                                            pFrames.has(String.valueOf(bluePlayer.participantId)) &&
+                                            pFrames.has(String.valueOf(redPlayer.participantId))) {
+
+                                        int blueGold = pFrames.getJSONObject(String.valueOf(bluePlayer.participantId)).optInt("totalGold", 0);
+                                        int redGold = pFrames.getJSONObject(String.valueOf(redPlayer.participantId)).optInt("totalGold", 0);
+
+                                        bluePlayer.goldDiffAt14 = blueGold - redGold;
+                                        redPlayer.goldDiffAt14 = redGold - blueGold;
+                                    }
                                 }
                             }
                         }
 
+                        // ---------------------------------------------------
+                        // B. Extract events
+                        // ---------------------------------------------------
                         JSONArray events = frame.optJSONArray("events");
                         if (events != null) {
                             for (int e = 0; e < events.length(); e++) {
                                 JSONObject event = events.getJSONObject(e);
                                 String type = event.optString("type");
                                 long timestamp = event.optLong("timestamp");
-                                
+
                                 if ("CHAMPION_KILL".equals(type)) {
                                     int killerId = event.optInt("killerId");
                                     int victimId = event.optInt("victimId");
                                     PlayerContext killer = byId.get(killerId);
                                     PlayerContext victim = byId.get(victimId);
-                                    
+
                                     if (killer != null && victim != null) {
+                                        // ---- Existing TimelineEvent for V2 sequential analysis ----
                                         TimelineEvent te = new TimelineEvent(timestamp, type, killerId, killer.teamId);
                                         te.victimId = victimId;
                                         te.victimTeamId = victim.teamId;
-                                        
+
                                         JSONArray assists = event.optJSONArray("assistingParticipantIds");
+                                        List<Integer> assistList = new ArrayList<>();
                                         if (assists != null) {
-                                            for(int a=0; a<assists.length(); a++) te.assistingParticipantIds.add(assists.getInt(a));
+                                            for (int a = 0; a < assists.length(); a++) {
+                                                assistList.add(assists.getInt(a));
+                                                te.assistingParticipantIds.add(assists.getInt(a));
+                                            }
                                         }
                                         allEvents.add(te);
-                                        
-                                        // Logique existante (Roam, Early Deaths)
+
+                                        // ---- V3-WEC: RichKillEvent with position + bounty ----
+                                        int kx = 0, ky = 0;
+                                        JSONObject kPos = event.optJSONObject("position");
+                                        if (kPos != null) {
+                                            kx = kPos.optInt("x", 0);
+                                            ky = kPos.optInt("y", 0);
+                                        }
+                                        int bounty     = event.optInt("bounty", 300);
+                                        int victimGold = latestGold.getOrDefault(victimId, 0);
+                                        killEvents.add(new RichKillEvent(timestamp, kx, ky, killerId, victimId,
+                                                assistList, bounty, victimGold));
+
+                                        // ---- Existing early death / roam logic ----
                                         double minutes = timestamp / 60000.0;
-                                        
-                                        // Comptage des kills early pour HeavyLosingEarly
+
                                         if (minutes <= 15.0) {
                                             if (killer.teamId == 100) blueEarlyKills++;
                                             else redEarlyKills++;
@@ -314,54 +489,88 @@ public class MatchDataExtractor {
                                             victim.lateGameDeaths++;
                                         }
                                     }
-                                } else if ("ELITE_MONSTER_KILL".equals(type) || 
-                                          ("BUILDING_KILL".equals(type) && ("INHIBITOR_BUILDING".equals(event.optString("buildingType")) || "TOWER_BUILDING".equals(event.optString("buildingType"))))) {
-                                    
+
+                                } else if ("WARD_PLACED".equals(type)) {
+                                    // V3-WEC: capture ward placements with position
+                                    int placerId = event.optInt("creatorId", 0);
+                                    if (placerId > 0) {
+                                        int wx = 0, wy = 0;
+                                        JSONObject wPos = event.optJSONObject("position");
+                                        if (wPos != null) {
+                                            wx = wPos.optInt("x", 0);
+                                            wy = wPos.optInt("y", 0);
+                                        }
+                                        String wardType = event.optString("wardType", "YELLOW_TRINKET");
+                                        wardEvents.add(new WardEvent(timestamp, placerId, wx, wy, wardType));
+                                    }
+
+                                } else if ("ELITE_MONSTER_KILL".equals(type) ||
+                                        ("BUILDING_KILL".equals(type) && (
+                                                "INHIBITOR_BUILDING".equals(event.optString("buildingType")) ||
+                                                "TOWER_BUILDING".equals(event.optString("buildingType"))))) {
+
                                     int killerId = event.optInt("killerId");
-                                    int killerTeamId = event.optInt("killerTeamId"); // Parfois présent
-                                    
+                                    int killerTeamId = event.optInt("killerTeamId", 0);
                                     if (killerTeamId == 0 && byId.containsKey(killerId)) {
                                         killerTeamId = byId.get(killerId).teamId;
                                     }
-                                    
+
                                     if (killerTeamId == 100 || killerTeamId == 200) {
+                                        // Existing TimelineEvent for V2 sequential analysis
                                         TimelineEvent te = new TimelineEvent(timestamp, type, killerId, killerTeamId);
                                         allEvents.add(te);
+
+                                        // V3-WEC: ObjectiveEvent with position + subtype
+                                        int ox = 0, oy = 0;
+                                        JSONObject oPos = event.optJSONObject("position");
+                                        if (oPos != null) {
+                                            ox = oPos.optInt("x", 0);
+                                            oy = oPos.optInt("y", 0);
+                                        }
+                                        String subType = "ELITE_MONSTER_KILL".equals(type)
+                                                ? event.optString("monsterType", "UNKNOWN")
+                                                : event.optString("buildingType", "UNKNOWN");
+                                        objectiveEvents.add(new ObjectiveEvent(timestamp, ox, oy,
+                                                killerId, killerTeamId, type, subType));
                                     }
                                 }
                             }
                         }
                     }
-                    
-                    // 2. ANALYSE SÉQUENTIELLE (Le Cerveau)
-                    
+
+                    // ---------------------------------------------------
+                    // Attach completed trajectories to PlayerContext
+                    // ---------------------------------------------------
+                    for (Map.Entry<Integer, PlayerTrajectory> entry : trajectoryBuilders.entrySet()) {
+                        PlayerContext ctx = byId.get(entry.getKey());
+                        if (ctx != null) ctx.trajectory = entry.getValue();
+                    }
+
+                    // 2. ANALYSE SÉQUENTIELLE (V2 — conservée intact)
+
                     for (int i = 0; i < allEvents.size(); i++) {
                         TimelineEvent current = allEvents.get(i);
-                        
+
                         if ("CHAMPION_KILL".equals(current.type)) {
                             boolean objectiveTakenAfter = false;
                             boolean objectiveLostAfter = false;
-                            
-                            // Calcul dynamique de la fenêtre de temps (Death Timer approximatif)
-                            // Early game (~15s) -> Late game (~60-70s)
+
                             double gameMinutes = current.timestamp / 60000.0;
                             long dynamicWindowMs;
                             if (gameMinutes < 15) {
-                                dynamicWindowMs = 15000 + (long)(gameMinutes * 1000); // 15s -> 30s
+                                dynamicWindowMs = 15000 + (long)(gameMinutes * 1000);
                             } else if (gameMinutes < 30) {
-                                dynamicWindowMs = 30000 + (long)((gameMinutes - 15) * 2000); // 30s -> 60s
+                                dynamicWindowMs = 30000 + (long)((gameMinutes - 15) * 2000);
                             } else {
-                                dynamicWindowMs = 60000 + (long)((gameMinutes - 30) * 1000); // 60s -> 70s+
+                                dynamicWindowMs = 60000 + (long)((gameMinutes - 30) * 1000);
                             }
-                            
-                            // Modificateur de pression de fin de partie
-                            int weight = (current.timestamp > 1800000) ? 2 : 1; // > 30 minutes = double impact
 
-                            // On regarde le futur
+                            int weight = (current.timestamp > 1800000) ? 2 : 1;
+
                             for (int j = i + 1; j < allEvents.size(); j++) {
                                 TimelineEvent future = allEvents.get(j);
-                                if (future.timestamp - current.timestamp > dynamicWindowMs) break; // Hors fenêtre dynamique
-                                
+                                if (future.timestamp - current.timestamp > dynamicWindowMs) break;
+
                                 if (!"CHAMPION_KILL".equals(future.type)) {
                                     if (future.teamId == current.teamId) {
                                         objectiveTakenAfter = true;
@@ -370,32 +579,23 @@ public class MatchDataExtractor {
                                     }
                                 }
                             }
-                            
-                            // A. CLUTCH KILL (Kill -> Objectif)
+
                             if (objectiveTakenAfter) {
                                 PlayerContext killer = byId.get(current.killerId);
                                 if (killer != null) killer.clutchKills += weight;
-                                // On pourrait aussi donner des points aux assistants ici
                             }
-                            
-                            // B. UNFORCED ERROR / THROW (Mort -> Perte d'Objectif)
+
                             if (objectiveLostAfter) {
                                 PlayerContext victim = byId.get(current.victimId);
                                 if (victim != null) {
-                                    // On vérifie si c'était un sacrifice (déjà géré par l'ancienne logique, mais on affine ici)
-                                    // Pour simplifier, toute mort suivie d'une perte d'objectif est un "Throw" potentiel
-                                    // Sauf si l'équipe de la victime a AUSSI pris un objectif (Trade)
                                     if (!objectiveTakenAfter) {
                                         victim.unforcedErrorDeaths += weight;
                                     } else {
-                                        victim.sacrificialDeaths += weight; // C'était un trade (mort pour objectif)
+                                        victim.sacrificialDeaths += weight;
                                     }
                                 }
                             }
-                            
-                            // C. PICK-OFF (Kill Isolé)
-                            // Nécessiterait les positions X,Y. Pour l'instant, on approxime :
-                            // Si aucun autre kill n'a eu lieu 10s avant ou après, c'est un pick-off.
+
                             boolean isIsolated = true;
                             for (int j = Math.max(0, i - 5); j < Math.min(allEvents.size(), i + 5); j++) {
                                 if (i == j) continue;
@@ -405,7 +605,7 @@ public class MatchDataExtractor {
                                     break;
                                 }
                             }
-                            
+
                             if (isIsolated) {
                                 PlayerContext killer = byId.get(current.killerId);
                                 if (killer != null) killer.pickOffs += weight;
@@ -413,7 +613,7 @@ public class MatchDataExtractor {
                         }
                     }
 
-                    // C. Déduction Finale : Heavy Losing Early - inchangé
+                    // C. Déduction Finale : Heavy Losing Early
                     boolean blueHeavyLosing = (redEarlyKills - blueEarlyKills) >= 5;
                     boolean redHeavyLosing = (blueEarlyKills - redEarlyKills) >= 5;
                     for (PlayerContext ctx : byId.values()) {
@@ -429,6 +629,6 @@ public class MatchDataExtractor {
         TeamCompositionProfile blueTeamComp = createTeamProfile(blueTeamPlayers);
         TeamCompositionProfile redTeamComp = createTeamProfile(redTeamPlayers);
 
-        return new FullContext(byChamp, blueTeamComp, redTeamComp);
+        return new FullContext(byChamp, blueTeamComp, redTeamComp, killEvents, wardEvents, objectiveEvents);
     }
 }

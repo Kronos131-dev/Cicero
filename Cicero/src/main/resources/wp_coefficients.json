@@ -1,0 +1,12 @@
+{
+  "_comment": "Coefficients de la fonction Win Probability (V3-WEC). Phases définies par minute de fin. À chaque phase, le poids relatif des différents facteurs change : early = or et kills dominent, late = baron et tours.",
+  "phases": [
+    { "end_minute": 10,  "gold": 0.60, "kills": 0.30, "turrets": 0.05, "dragons": 0.05, "baron": 0.00, "inhibs": 0.00 },
+    { "end_minute": 20,  "gold": 0.40, "kills": 0.25, "turrets": 0.20, "dragons": 0.15, "baron": 0.00, "inhibs": 0.00 },
+    { "end_minute": 30,  "gold": 0.25, "kills": 0.15, "turrets": 0.20, "dragons": 0.20, "baron": 0.20, "inhibs": 0.05 },
+    { "end_minute": 999, "gold": 0.15, "kills": 0.10, "turrets": 0.25, "dragons": 0.20, "baron": 0.30, "inhibs": 0.10 }
+  ],
+  "normalization": {
+    "gold_unit": 1000.0
+  }
+}

@@ -276,6 +276,15 @@ public class RiotService {
         return json;
     }
 
+    public JSONObject fetchRawTimeline(String matchId, String region) {
+        try {
+            return getRawTimeline(matchId, region);
+        } catch (Exception e) {
+            System.err.println("Erreur fetchRawTimeline : " + e.getMessage());
+            return null;
+        }
+    }
+
     private JSONObject getRawTimeline(String matchId, String region) throws IOException {
         JSONObject cached = rawTimelineCache.get(matchId);
         if (cached != null) return cached;
@@ -587,6 +596,27 @@ public class RiotService {
             return MatchDataExtractor.extractAll(matchInfo, timeline);
         } catch (Exception e) {
             System.err.println("Erreur getMatchContext : " + e.getMessage());
+            return null;
+        }
+    }
+
+    public static class MatchBundle {
+        public final MatchDataExtractor.FullContext fullContext;
+        public final JSONObject rawTimeline;
+        public MatchBundle(MatchDataExtractor.FullContext fc, JSONObject rt) {
+            this.fullContext = fc;
+            this.rawTimeline = rt;
+        }
+    }
+
+    public MatchBundle getMatchBundle(String matchId, String region) {
+        try {
+            JSONObject matchInfo = getRawMatch(matchId, region);
+            JSONObject timeline = getRawTimeline(matchId, region);
+            MatchDataExtractor.FullContext ctx = MatchDataExtractor.extractAll(matchInfo, timeline);
+            return new MatchBundle(ctx, timeline);
+        } catch (Exception e) {
+            System.err.println("Erreur getMatchBundle : " + e.getMessage());
             return null;
         }
     }

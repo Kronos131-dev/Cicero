@@ -10,7 +10,7 @@ import net.dv8tion.jda.api.utils.FileUpload;
 import org.example.DatabaseManager;
 import org.example.service.MatchDataExtractor;
 import org.example.service.RiotService;
-import org.example.service.ScoreCalculator;
+import org.example.service.WecOrchestrator;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -53,22 +53,25 @@ public class PerformanceTestCommand implements SlashCommand {
                 // On récupère la liste des matchs
                 List<String> matchIds = ctx.riotService().getMatchIds(user.puuid, user.region, matchCount);
                 StringBuilder globalAudit = new StringBuilder();
-                globalAudit.append("=== AUDIT CALIBRAGE MATHÉMATICIEN ===\n\n");
+                globalAudit.append("=== AUDIT CALIBRAGE V3-WEC ===\n\n");
+
+                RiotService.RankInfo rankInfo = ctx.riotService().getRank(user.puuid, user.region);
+                String gameTier = (rankInfo != null && rankInfo.tier != null) ? rankInfo.tier : "GOLD";
 
                 for (String matchId : matchIds) {
-                    // 1. Données brutes et contexte causal (exactement comme PerformanceCommand)
+                    // 1. Données brutes du match (KDA, champion, win/loss)
                     String matchJsonStr = ctx.riotService().getMatchAnalysis(matchId, user.puuid, user.region);
                     JSONObject fullMatchData = new JSONObject(matchJsonStr);
-                    
-                    // CORRECTION ICI : On récupère le FullContext et on extrait la map des joueurs
-                    MatchDataExtractor.FullContext fullContext = ctx.riotService().getMatchContext(matchId, user.region);
-                    Map<String, MatchDataExtractor.PlayerContext> globalContext = fullContext.players;
-                    MatchDataExtractor.TeamCompositionProfile enemyComp = fullContext.redTeamComp; // Par défaut, on ajustera dans la boucle
 
-                    RiotService.RankInfo rankInfo = ctx.riotService().getRank(user.puuid, user.region);
-                    String gameTier = (rankInfo != null && rankInfo.tier != null) ? rankInfo.tier : "GOLD";
-                    JSONObject benchmarks = ctx.benchmarkService().getBenchmarks();
-                    double durationMin = fullMatchData.getJSONObject("metadata").optLong("duration_sec", 1800) / 60.0;
+                    // 2. Bundle V3-WEC (FullContext + rawTimeline)
+                    RiotService.MatchBundle bundle = ctx.riotService().getMatchBundle(matchId, user.region);
+                    if (bundle == null) {
+                        globalAudit.append("MATCH ").append(matchId).append(" : erreur récupération bundle\n\n");
+                        continue;
+                    }
+                    MatchDataExtractor.FullContext fullContext = bundle.fullContext;
+                    Map<String, MatchDataExtractor.PlayerContext> globalContext = fullContext.players;
+                    WecOrchestrator.WecAnalysis wecAnalysis = WecOrchestrator.analyze(fullContext, bundle.rawTimeline);
 
                     JSONArray playersToAnalyze = new JSONArray();
                     playersToAnalyze.put(fullMatchData.getJSONObject("target_player"));
@@ -76,46 +79,43 @@ public class PerformanceTestCommand implements SlashCommand {
                     fullMatchData.getJSONArray("enemies").forEach(p -> playersToAnalyze.put(p));
 
                     Map<String, JSONObject> javaPlayerMap = new HashMap<>();
-                    globalAudit.append("MATCH ID: ").append(matchId).append("\n");
+                    globalAudit.append("MATCH ID: ").append(matchId).append(" (Élo: ").append(gameTier).append(")\n");
 
-                    // 2. Boucle du Mathématicien (Copie conforme de PerformanceCommand)
+                    // 3. Boucle V3-WEC par joueur
                     for (int i = 0; i < playersToAnalyze.length(); i++) {
                         JSONObject p = playersToAnalyze.getJSONObject(i);
                         String champName = p.getString("champion").toUpperCase();
                         MatchDataExtractor.PlayerContext pCtx = globalContext.get(champName);
 
-                        MatchDataExtractor.PlayerContext oppCtx = null;
-                        if (pCtx != null) {
-                            // Détermination de l'équipe ennemie pour l'analyse contextuelle
-                            enemyComp = (pCtx.teamId == 100) ? fullContext.redTeamComp : fullContext.blueTeamComp;
-                            
-                            for (MatchDataExtractor.PlayerContext other : globalContext.values()) {
-                                if (other.teamId != pCtx.teamId && other.role.equals(pCtx.role)) {
-                                    oppCtx = other; break;
-                                }
-                            }
-                        }
-
-                        // Appel avec la nouvelle signature (ajout de enemyComp)
-                        JSONObject mathResult = ScoreCalculator.analyzePlayer(p, benchmarks, gameTier, durationMin, pCtx, oppCtx, enemyComp);
-                        p.put("ai_context", mathResult);
-                        p.put("score", mathResult.getInt("math_score"));
-                        p.put("comment", "Note Mathématique Pure");
+                        JSONObject wecResult = (pCtx != null)
+                                ? WecOrchestrator.buildPlayerOutput(pCtx, wecAnalysis, fullContext)
+                                : new JSONObject();
+                        p.put("ai_context", wecResult);
+                        p.put("score", wecResult.optInt("math_score", 50));
+                        p.put("comment", "Note WEC V3");
                         javaPlayerMap.put(champName, p);
 
-                        // On log le détail dans le fichier TXT
-                        globalAudit.append("  [").append(champName).append("] Score: ").append(p.getInt("score")).append("\n");
-                        
-                        // Correction : ScoreCalculator renvoie "pillars" et "synergies", pas "score_breakdown"
-                        JSONArray pillars = mathResult.getJSONArray("pillars");
-                        for(int j=0; j<pillars.length(); j++) {
-                            JSONObject pillar = pillars.getJSONObject(j);
-                            globalAudit.append("    > ").append(pillar.getString("name")).append(": ").append(pillar.getInt("score")).append("\n");
+                        int score = wecResult.optInt("math_score", 50);
+                        double wecRaw = wecResult.optDouble("wec_raw", 0.0);
+                        globalAudit.append(String.format("  [%s] %d/100  (wec=%+.3f)\n", champName, score, wecRaw));
+
+                        if (wecResult.has("behavior_profile")) {
+                            JSONObject bp = wecResult.getJSONObject("behavior_profile");
+                            globalAudit.append("    Profil: ").append(bp.optString("identity")).append("\n");
                         }
-                        JSONArray synergies = mathResult.getJSONArray("synergies");
-                        for(int j=0; j<synergies.length(); j++) {
-                            JSONObject syn = synergies.getJSONObject(j);
-                            globalAudit.append("    + ").append(syn.getString("reason")).append(" (").append(syn.getDouble("points")).append(")\n");
+                        if (wecResult.has("commentator_brief")) {
+                            JSONObject brief = wecResult.getJSONObject("commentator_brief");
+                            globalAudit.append("    Tone: ").append(brief.optString("tone"))
+                                    .append(" | Hook: ").append(brief.optString("narrative_hook")).append("\n");
+                        }
+                        if (wecResult.has("win_equity_contributions")) {
+                            JSONArray contribs = wecResult.getJSONArray("win_equity_contributions");
+                            for (int j = 0; j < Math.min(3, contribs.length()); j++) {
+                                JSONObject ev = contribs.getJSONObject(j);
+                                globalAudit.append(String.format("      T:%.1fmin %s [%s] attrib=%+.3f\n",
+                                        ev.optDouble("timestamp_min"), ev.optString("event"),
+                                        ev.optString("role_in_event"), ev.optDouble("attributed")));
+                            }
                         }
                     }
                     globalAudit.append("\n");
@@ -160,7 +160,7 @@ public class PerformanceTestCommand implements SlashCommand {
 
         EmbedBuilder embed = new EmbedBuilder();
         embed.setTitle("⏱️ Calibrage Mathématique - " + targetUser.getName());
-        embed.setDescription("Match: " + matchId + " • Élo: " + gameTier + "\n*Affichage des notes brutes du ScoreCalculator...*");
+        embed.setDescription("Match: " + matchId + " • Élo: " + gameTier + "\n*Notes V3-WEC (Win Equity Contribution)*");
         embed.setColor(Color.GRAY);
 
         StringBuilder sbBlue = new StringBuilder();

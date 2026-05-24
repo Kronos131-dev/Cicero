@@ -19,6 +19,12 @@ public final class ScoringConstants {
         public static final double MIN_SCORE = 0.0;
         public static final double MAX_SCORE = 150.0;
 
+        // Coefficient for dynamic pillar weight adjustment based on scaling_factor.
+        // laneWeight = baseLane * (1 - SF * this)
+        // classWeight = 1 - combatWeight - laneWeight  (always sums to 1)
+        // SF=0 (Renekton) → no change. SF=0.95 (Kassadin) → lane weight reduced ~43%.
+        public static final double SCALING_FACTOR_LANE_COEFFICIENT = 0.45;
+
         public static final class Floor {
             public static final double EXCEPTIONAL_KDA = 4.0;
             public static final double EXCEPTIONAL_KP = 0.50;
@@ -29,16 +35,16 @@ public final class ScoringConstants {
             public static final double SOLID_FLOOR = 40.0;
         }
         
-        // --- NOUVEAU : SYNERGIES D'IMPACT TEMPOREL & DOMINATION ---
+        // --- SYNERGIES D'IMPACT TEMPOREL & DOMINATION ---
         public static final class Synergies {
-            public static final double CLUTCH_KILL_BONUS = 1.5;       // Kill -> Objectif
-            public static final double PICK_OFF_BONUS = 2.0;          // Kill isolé
-            public static final double UNFORCED_ERROR_MALUS = -4.0;  // Mort -> Perte d'objectif
-            
+            public static final double CLUTCH_KILL_BONUS = 1.5;            // Kill -> Objectif
+            public static final double PICK_OFF_BONUS = 1.0;               // Kill isolé (réduit : détection approx.)
+            public static final double UNFORCED_ERROR_MALUS = -4.0;        // Mort -> Perte d'objectif
+            public static final double EARLY_SOLO_DEATH_MALUS = -2.0;     // Mort 1v1 avant 14 min
+
             // Le Bonus "Terminator" (Net Kills = Kills - Morts)
-            // Il faut avoir au moins 7 kills de plus que de morts pour activer ce bonus
-            public static final int TERMINATOR_NET_KILL_THRESHOLD = 7;   
-            public static final double TERMINATOR_BONUS_PER_NET_KILL = 0.5;
+            public static final int TERMINATOR_NET_KILL_THRESHOLD = 7;
+            public static final double TERMINATOR_BONUS_PER_NET_KILL = 1.0; // augmenté : 0.5 → 1.0
         }
     }
 
@@ -53,15 +59,20 @@ public final class ScoringConstants {
         // Pilier LANE_ECO
         public static final double CS_SCORE_WEIGHT = 0.50;
         public static final double GOLD_SCORE_WEIGHT = 0.50;
-        public static final double GOLD_SENSITIVITY = 2500.0;
-        public static final double CS_SENSITIVITY = 20.0;
+        public static final double GOLD_SENSITIVITY = 1500.0;  // 2500 → 1500 : plus discriminant
+        public static final double CS_SENSITIVITY = 1.2;       // 20.0 → 1.2 : BUG CRITIQUE corrigé
 
-        // Pilier COMBAT
+        // Pilier COMBAT — Kill Impact Score (remplace KDA brut)
         public static final double KP_SCORE_WEIGHT = 0.50;
-        public static final double KDA_SCORE_WEIGHT = 0.50;
+        public static final double ACTIVITY_SCORE_WEIGHT = 0.50;
         public static final double KP_EXPECTED = 0.40;
         public static final double KP_SENSITIVITY = 0.15;
-        public static final double KDA_SENSITIVITY = 3.5;
+
+        // Combat Activity (Kill Impact Score)
+        public static final class CombatActivity {
+            public static final double EXPECTED_ACTIVITY = 14.0;
+            public static final double ACTIVITY_SENSITIVITY = 5.0;
+        }
 
         // Pilier MACRO_CLASS
         public static final class Tank {
@@ -92,10 +103,6 @@ public final class ScoringConstants {
         }
 
         // Synergies & Malus
-        public static final double TYRAN_LANE_SCORE_THRESHOLD = 90.0;
-        public static final double TYRAN_SOLO_KILL_SCORE_THRESHOLD = 80.0;
-        public static final double TYRAN_CLASS_SCORE_THRESHOLD = 80.0;
-        public static final double TYRAN_BONUS = 10.0;
         public static final int SACRIFICIAL_DEATHS_THRESHOLD = 2;
         public static final int PRESSURE_OBJECTIVE_DAMAGE_THRESHOLD = 10000;
         public static final double PRESSURE_BONUS = 12.0;
@@ -113,18 +120,23 @@ public final class ScoringConstants {
         // Pilier PATHING_ECO
         public static final double CS_SCORE_WEIGHT = 0.40;
         public static final double GOLD_SCORE_WEIGHT = 0.40;
-        public static final double INVADE_WEIGHT = 0.20; // Added weight for invade
+        public static final double INVADE_WEIGHT = 0.20;
         public static final double GOLD_SENSITIVITY = 600.0;
         public static final double CS_SENSITIVITY = 3.5;
         public static final double INVADE_EXPECTED = 5.0;
         public static final double INVADE_SENSITIVITY = 5.0;
 
-        // Pilier IMPACT
+        // Pilier IMPACT — Kill Impact Score (remplace KDA brut)
         public static final double KP_SCORE_WEIGHT = 0.60;
-        public static final double KDA_SCORE_WEIGHT = 0.40;
+        public static final double ACTIVITY_SCORE_WEIGHT = 0.40;
         public static final double KP_EXPECTED = 0.50;
         public static final double KP_SENSITIVITY = 0.25;
-        public static final double KDA_SENSITIVITY = 0.30;
+
+        // Combat Activity (Kill Impact Score)
+        public static final class CombatActivity {
+            public static final double EXPECTED_ACTIVITY = 18.0;
+            public static final double ACTIVITY_SENSITIVITY = 6.0;
+        }
 
         // Pilier MACRO_CLASS (Vision)
         public static final double VISION_SCORE_WEIGHT = 0.6;
@@ -167,10 +179,8 @@ public final class ScoringConstants {
         }
 
         // Synergies & Malus
-        public static final double SMOTHER_GOLD_DIFF_THRESHOLD = 1000;
-        public static final double SMOTHER_BONUS = 10.0;
         public static final int NO_SMITE_THROW_DEATHS_THRESHOLD = 2;
-        public static final double NO_SMITE_MALUS = -15.0;
+        public static final double NO_SMITE_MALUS = -10.0;  // -15 → -10 : moins brutal avec le nouveau système de morts
     }
 
     public static final class Mid {
@@ -182,18 +192,23 @@ public final class ScoringConstants {
         // Pilier LANE_ECO
         public static final double GOLD_SENSITIVITY = 600.0;
         public static final double CS_SENSITIVITY = 1.2;
-        
+
         public static final class Default {
             public static final double CS_SCORE_WEIGHT = 0.50;
             public static final double GOLD_SCORE_WEIGHT = 0.50;
         }
 
-        // Pilier COMBAT
-        public static final double KDA_SCORE_WEIGHT = 0.5;
+        // Pilier COMBAT — Kill Impact Score (remplace KDA brut)
+        public static final double ACTIVITY_SCORE_WEIGHT = 0.5;
         public static final double KP_SCORE_WEIGHT = 0.5;
         public static final double KP_EXPECTED = 0.50;
         public static final double KP_SENSITIVITY = 0.15;
-        public static final double KDA_SENSITIVITY = 1.8;
+
+        // Combat Activity (Kill Impact Score)
+        public static final class CombatActivity {
+            public static final double EXPECTED_ACTIVITY = 15.0;
+            public static final double ACTIVITY_SENSITIVITY = 5.0;
+        }
 
         // Pilier MACRO_CLASS
         public static final class Mage {
@@ -222,6 +237,8 @@ public final class ScoringConstants {
             public static final double SOLO_KILL_SENSITIVITY = 1.5;
         }
         public static final class ScalingCarry { // Combattant Eclair
+            // Pilier weights are now computed dynamically via scaling_factor + SCALING_FACTOR_LANE_COEFFICIENT.
+            // Class identity constants remain:
             public static final double DPM_WEIGHT = 0.50;
             public static final double OBJECTIVE_DAMAGE_WEIGHT = 0.40;
             public static final double SOLO_KILL_WEIGHT = 0.10;
@@ -257,9 +274,6 @@ public final class ScoringConstants {
         }
 
         // Synergies & Malus
-        public static final int TERROR_ROAM_TAKEDOWNS_THRESHOLD = 3;
-        public static final double TERROR_LANE_SCORE_THRESHOLD = 60.0;
-        public static final double TERROR_BONUS = 10.0;
         public static final double HYPERSCALING_CS_SCORE_THRESHOLD = 80.0;
         public static final double HYPERSCALING_DPM_SCORE_THRESHOLD = 80.0;
         public static final double HYPERSCALING_BONUS = 10.0;
@@ -281,14 +295,19 @@ public final class ScoringConstants {
         public static final double GOLD_SENSITIVITY = 600.0;
         public static final double CS_SENSITIVITY = 1.2;
 
-        // Pilier COMBAT
+        // Pilier COMBAT — Kill Impact Score (remplace KDA brut)
         public static final double DPM_SCORE_WEIGHT = 0.50;
-        public static final double KDA_SCORE_WEIGHT = 0.40;
+        public static final double ACTIVITY_SCORE_WEIGHT = 0.40; // remplace KDA_SCORE_WEIGHT
         public static final double KP_SCORE_WEIGHT = 0.10;
         public static final double KP_EXPECTED = 0.50;
         public static final double KP_SENSITIVITY = 0.15;
         public static final double DPM_SENSITIVITY = 150.0;
-        public static final double KDA_SENSITIVITY = 1.8;
+
+        // Combat Activity (Kill Impact Score)
+        public static final class CombatActivity {
+            public static final double EXPECTED_ACTIVITY = 14.0;
+            public static final double ACTIVITY_SENSITIVITY = 5.0;
+        }
 
         // Pilier MACRO_SIEGE
         public static final double OBJECTIVE_DAMAGE_EXPECTED = 6000.0;
@@ -321,28 +340,45 @@ public final class ScoringConstants {
         // Pilier LANE
         public static final double GOLD_SENSITIVITY = 600.0;
 
-        // Pilier IMPACT
+        // Pilier IMPACT — Kill Impact Score (remplace KDA brut)
         public static final double KP_SCORE_WEIGHT = 0.6;
-        public static final double KDA_SCORE_WEIGHT = 0.4;
+        public static final double ACTIVITY_SCORE_WEIGHT = 0.4; // remplace KDA_SCORE_WEIGHT
         public static final double KP_EXPECTED = 0.50;
         public static final double KP_SENSITIVITY = 0.15;
-        public static final double KDA_SENSITIVITY = 1.8;
 
-        // Pilier UTILITY_VISION
-        public static final double VISION_SCORE_WEIGHT = 0.6;
-        public static final double CONTROL_WARDS_WEIGHT = 0.4;
+        // Combat Activity (Kill Impact Score)
+        public static final class CombatActivity {
+            public static final double EXPECTED_ACTIVITY = 22.0;
+            public static final double ACTIVITY_SENSITIVITY = 7.0;
+            // Carry support (Pyke, Pantheon) — plus de kills attendus
+            public static final double CARRY_EXPECTED_ACTIVITY = 20.0;
+            public static final double CARRY_ACTIVITY_SENSITIVITY = 6.0;
+        }
+
+        // Pilier UTILITY_VISION — ratio inversé : pink wards > vision score brute
+        public static final double VISION_SCORE_WEIGHT = 0.3;   // 0.6 → 0.3
+        public static final double CONTROL_WARDS_WEIGHT = 0.7;  // 0.4 → 0.7
         public static final double VISION_SENSITIVITY = 0.6;
         public static final double CONTROL_WARDS_SENSITIVITY = 1.0;
+
+        // Synergies supports
+        public static final double CC_TO_KILL_BONUS = 5.0;
+        public static final double CC_TO_KILL_KP_SCORE_THRESHOLD = 70.0;   // kpScore > 70
+        public static final double CC_TO_KILL_CC_SCORE_THRESHOLD = 70.0;   // ccScore > 70
+        public static final double MAGE_BLIND_VISION_SCORE_THRESHOLD = 35.0; // vision < 35/100
+        public static final double MAGE_BLIND_DPM_SCORE_THRESHOLD = 70.0;   // dpmScore > 70
+        public static final double MAGE_BLIND_MALUS = -8.0;
 
         public static final class Enchanter {
             public static final double HEAL_EXPECTED = 10000.0;
             public static final double HEAL_SENSITIVITY = 3000.0;
             public static final double VISION_WEIGHT = 0.40;
-            public static final double HEAL_WEIGHT = 0.40;
-            public static final double SAVE_ALLY_WEIGHT = 0.20; // Added weight
+            public static final double HEAL_WEIGHT = 0.25;        // 0.40 → 0.25 : heal seul ≠ impact
+            public static final double SAVE_ALLY_WEIGHT = 0.35;  // 0.20 → 0.35 : sauvetage = action décisive
             public static final double SAVE_ALLY_EXPECTED = 1.0;
             public static final double SAVE_ALLY_SENSITIVITY = 1.0;
-            public static final double SCORE_CAP = 80.0; // Plafond de verre
+            public static final double SCORE_CAP = 80.0;
+            public static final double NO_SAVE_PENALTY_MULTIPLIER = 0.75; // pClass *= 0.75 si 0 sauvetage
         }
         public static final class Tank {
             public static final double VISION_WEIGHT = 0.40;
