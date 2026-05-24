@@ -1,0 +1,251 @@
+{
+  "COMBATTANT_ECLAIR": {
+    "Vladimir":    { "scaling_factor": 0.90 },
+    "Kassadin":    { "scaling_factor": 0.95 },
+    "Yasuo":       { "scaling_factor": 0.75 },
+    "Yone":        { "scaling_factor": 0.75 },
+    "Viego":       { "scaling_factor": 0.80 },
+    "Gwen":        { "scaling_factor": 0.80 },
+    "Gangplank":   { "scaling_factor": 0.85 },
+    "Tryndamere":  { "scaling_factor": 0.75 },
+    "Jayce":       { "scaling_factor": 0.75 },
+    "Swain":       { "scaling_factor": 0.80 },
+    "Rumble":      { "scaling_factor": 0.70 },
+    "Bel'Veth":    { "scaling_factor": 0.90 },
+    "Kayle":       { "scaling_factor": 0.95 },
+    "Master Yi":   { "scaling_factor": 0.80 }
+  },
+
+  "COMBATTANT_ECLAIR_MULTIBUILD": {
+    "Diana": {
+      "scaling_factor": 0.80,
+      "build_detection": {
+        "ASSASSIN": "soloKills >= 2 AND damageTakenOnTeamPercentage < 0.18",
+        "COMBATTANT_ECLAIR": "default"
+      }
+    },
+    "Shyvana": {
+      "scaling_factor": 0.75,
+      "build_detection": {
+        "COMBATTANT_ECLAIR": "teamDamagePercentage > 0.22",
+        "COMBATTANT": "default",
+        "combattant_scaling_factor": 0.80
+      }
+    }
+  },
+
+  "COMBATTANT": {
+    "Renekton":   { "scaling_factor": 0.20 },
+    "Darius":     { "scaling_factor": 0.30 },
+    "Garen":      { "scaling_factor": 0.60 },
+    "Sett":       { "scaling_factor": 0.35 },
+    "Olaf":       { "scaling_factor": 0.40 },
+    "Lee Sin":    { "scaling_factor": 0.30 },
+    "Xin Zhao":   { "scaling_factor": 0.35 },
+    "Rek'Sai":    { "scaling_factor": 0.35 },
+    "Vi":         { "scaling_factor": 0.45 },
+    "Warwick":    { "scaling_factor": 0.50 },
+    "Kled":       { "scaling_factor": 0.45 },
+    "Illaoi":     { "scaling_factor": 0.55 },
+    "Wukong":     { "scaling_factor": 0.70 },
+    "Trundle":    { "scaling_factor": 0.50 },
+    "Gnar":       { "scaling_factor": 0.45 },
+    "Briar":      { "scaling_factor": 0.55 },
+    "Urgot":      { "scaling_factor": 0.55 },
+    "Volibear":   { "scaling_factor": 0.55, "tank_tendency": 0.60 },
+    "Aatrox":     { "scaling_factor": 0.65 },
+    "Riven":      { "scaling_factor": 0.65 },
+    "Yorick":     { "scaling_factor": 0.65 },
+    "Singed":     { "scaling_factor": 0.65, "fight_style": "disruption" },
+    "Irelia":     { "scaling_factor": 0.50 },
+    "Sylas":      { "scaling_factor": 0.70 },
+    "Aurora":     { "scaling_factor": 0.60 },
+    "Camille":    { "scaling_factor": 0.75 },
+    "Fiora":      { "scaling_factor": 0.80 },
+    "Jax":        { "scaling_factor": 0.80 },
+    "Mordekaiser":{ "scaling_factor": 0.80 },
+    "Nasus":      { "scaling_factor": 0.60, "tank_tendency": 0.70 },
+    "Zaahen":     { "scaling_factor": 0.80 }
+  },
+
+  "COMBATTANT_MULTIBUILD": {
+    "Pantheon": {
+      "scaling_factor": 0.40,
+      "build_detection": {
+        "COMBATTANT": "role IN [TOP, MID, JUNGLE]",
+        "ASSASSIN": "role = SUPPORT"
+      }
+    },
+    "Jarvan IV": {
+      "scaling_factor": 0.45,
+      "build_detection": {
+        "TANK": "damageTakenOnTeamPercentage > 0.25",
+        "COMBATTANT": "default"
+      }
+    },
+    "Kayn": {
+      "scaling_factor": 0.60,
+      "build_detection": {
+        "ASSASSIN": "soloKills >= 2 AND damageTakenOnTeamPercentage < 0.17",
+        "COMBATTANT": "default"
+      }
+    },
+    "Udyr": {
+      "scaling_factor": 0.55,
+      "build_detection": {
+        "TANK": "damageTakenOnTeamPercentage > 0.28",
+        "COMBATTANT": "default"
+      }
+    }
+  },
+
+  "TANK": {
+    "Malphite":       { "scaling_factor": 0.35 },
+    "Ornn":           { "scaling_factor": 0.55 },
+    "Cho'Gath":       { "scaling_factor": 0.60 },
+    "K'Sante":        { "scaling_factor": 0.65 },
+    "Dr. Mundo":      { "scaling_factor": 0.60 },
+    "Maokai":         { "scaling_factor": 0.40 },
+    "Sion":           { "scaling_factor": 0.50 },
+    "Nautilus":       { "scaling_factor": 0.30 },
+    "Leona":          { "scaling_factor": 0.25 },
+    "Alistar":        { "scaling_factor": 0.30 },
+    "Braum":          { "scaling_factor": 0.30 },
+    "Amumu":          { "scaling_factor": 0.30 },
+    "Poppy":          { "scaling_factor": 0.50 },
+    "Galio":          { "scaling_factor": 0.50 },
+    "Shen":           { "scaling_factor": 0.50 },
+    "Rammus":         { "scaling_factor": 0.30 },
+    "Sejuani":        { "scaling_factor": 0.45 },
+    "Nunu & Willump": { "scaling_factor": 0.45 },
+    "Zac":            { "scaling_factor": 0.50 },
+    "Rell":           { "scaling_factor": 0.30 },
+    "Tahm Kench":     { "scaling_factor": 0.50 },
+    "Skarner":        { "scaling_factor": 0.45 },
+    "Blitzcrank":     { "scaling_factor": 0.25 },
+    "Thresh":         { "scaling_factor": 0.35, "enchanter_tendency": 0.45 },
+    "Taric":          { "scaling_factor": 0.70, "enchanter_tendency": 0.50 }
+  },
+
+  "TANK_MULTIBUILD": {
+    "Gragas": {
+      "scaling_factor": 0.70,
+      "build_detection": {
+        "COMBATTANT_ECLAIR": "teamDamagePercentage > 0.20",
+        "TANK": "default",
+        "combattant_eclair_scaling_factor": 0.70
+      }
+    }
+  },
+
+  "MAGE": {
+    "Orianna":      { "scaling_factor": 0.60 },
+    "Syndra":       { "scaling_factor": 0.65 },
+    "Viktor":       { "scaling_factor": 0.75 },
+    "Azir":         { "scaling_factor": 0.75 },
+    "Veigar":       { "scaling_factor": 0.90 },
+    "Aurelion Sol": { "scaling_factor": 0.90 },
+    "Ryze":         { "scaling_factor": 0.90 },
+    "Cassiopeia":   { "scaling_factor": 0.80 },
+    "Karthus":      { "scaling_factor": 0.75 },
+    "Anivia":       { "scaling_factor": 0.65 },
+    "Lissandra":    { "scaling_factor": 0.55 },
+    "Taliyah":      { "scaling_factor": 0.55 },
+    "Lillia":       { "scaling_factor": 0.65 },
+    "Malzahar":     { "scaling_factor": 0.60 },
+    "Hwei":         { "scaling_factor": 0.60 },
+    "Fiddlesticks": { "scaling_factor": 0.65 },
+    "Xerath":       { "scaling_factor": 0.55 },
+    "Vel'Koz":      { "scaling_factor": 0.55 },
+    "Ziggs":        { "scaling_factor": 0.55 },
+    "Twisted Fate": { "scaling_factor": 0.55 },
+    "Neeko":        { "scaling_factor": 0.55 },
+    "Lux":          { "scaling_factor": 0.50 },
+    "Zyra":         { "scaling_factor": 0.50 },
+    "Morgana":      { "scaling_factor": 0.50 },
+    "Zoe":          { "scaling_factor": 0.55 },
+    "Brand":        { "scaling_factor": 0.55 },
+    "Vex":          { "scaling_factor": 0.55 },
+    "Annie":        { "scaling_factor": 0.50 },
+    "Heimerdinger": { "scaling_factor": 0.55 },
+    "Teemo":        { "scaling_factor": 0.55 },
+    "Nidalee":      { "scaling_factor": 0.50 }
+  },
+
+  "ASSASSIN": {
+    "Zed":      { "scaling_factor": 0.50 },
+    "Talon":    { "scaling_factor": 0.50 },
+    "Akali":    { "scaling_factor": 0.75 },
+    "Ahri":     { "scaling_factor": 0.60 },
+    "Qiyana":   { "scaling_factor": 0.55 },
+    "LeBlanc":  { "scaling_factor": 0.55 },
+    "Katarina": { "scaling_factor": 0.70 },
+    "Ekko":     { "scaling_factor": 0.65 },
+    "Kha'Zix":  { "scaling_factor": 0.55 },
+    "Rengar":   { "scaling_factor": 0.55 },
+    "Evelynn":  { "scaling_factor": 0.60 },
+    "Shaco":    { "scaling_factor": 0.45 },
+    "Fizz":     { "scaling_factor": 0.60 },
+    "Naafiri":  { "scaling_factor": 0.50 },
+    "Nocturne": { "scaling_factor": 0.55 },
+    "Elise":    { "scaling_factor": 0.25 },
+    "Pyke":     { "scaling_factor": 0.55, "support_special": true }
+  },
+
+  "ADC": {
+    "Vayne":       { "scaling_factor": 0.85 },
+    "Kog'Maw":     { "scaling_factor": 0.80 },
+    "Smolder":     { "scaling_factor": 0.90 },
+    "Jinx":        { "scaling_factor": 0.70 },
+    "Kai'Sa":      { "scaling_factor": 0.75 },
+    "Aphelios":    { "scaling_factor": 0.75 },
+    "Twitch":      { "scaling_factor": 0.75 },
+    "Tristana":    { "scaling_factor": 0.70 },
+    "Zeri":        { "scaling_factor": 0.70 },
+    "Xayah":       { "scaling_factor": 0.65 },
+    "Samira":      { "scaling_factor": 0.65 },
+    "Ezreal":      { "scaling_factor": 0.65 },
+    "Jhin":        { "scaling_factor": 0.65, "utility_tendency": 0.40 },
+    "Kindred":     { "scaling_factor": 0.70 },
+    "Graves":      { "scaling_factor": 0.75 },
+    "Akshan":      { "scaling_factor": 0.60 },
+    "Kalista":     { "scaling_factor": 0.60 },
+    "Nilah":       { "scaling_factor": 0.60 },
+    "Caitlyn":     { "scaling_factor": 0.55 },
+    "Ashe":        { "scaling_factor": 0.55, "utility_tendency": 0.40 },
+    "Sivir":       { "scaling_factor": 0.55 },
+    "Varus":       { "scaling_factor": 0.55 },
+    "Corki":       { "scaling_factor": 0.55 },
+    "Lucian":      { "scaling_factor": 0.50 },
+    "Miss Fortune":{ "scaling_factor": 0.50 },
+    "Draven":      { "scaling_factor": 0.35 },
+    "Quinn":       { "scaling_factor": 0.40, "fight_style": "roam_bully" },
+    "Senna":       { "scaling_factor": 0.80, "support_special": true }
+  },
+
+  "ENCHANTER": {
+    "Lulu":          { "scaling_factor": 0.50 },
+    "Nami":          { "scaling_factor": 0.45 },
+    "Janna":         { "scaling_factor": 0.40 },
+    "Soraka":        { "scaling_factor": 0.50 },
+    "Sona":          { "scaling_factor": 0.55 },
+    "Yuumi":         { "scaling_factor": 0.60 },
+    "Milio":         { "scaling_factor": 0.45 },
+    "Renata Glasc":  { "scaling_factor": 0.55 },
+    "Seraphine":     { "scaling_factor": 0.55 },
+    "Ivern":         { "scaling_factor": 0.50 },
+    "Rakan":         { "scaling_factor": 0.45, "support_special": true },
+    "Bard":          { "scaling_factor": 0.55, "support_special": true },
+    "Zilean":        { "scaling_factor": 0.55, "support_special": true }
+  },
+
+  "ENCHANTER_MULTIBUILD": {
+    "Karma": {
+      "scaling_factor": 0.55,
+      "build_detection": {
+        "MAGE": "role IN [MID]",
+        "ENCHANTER": "default"
+      }
+    }
+  }
+}

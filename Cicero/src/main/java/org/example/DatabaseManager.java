@@ -4,22 +4,23 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONArray;
-import org.sqlite.SQLiteConfig;
 
 public class DatabaseManager {
-    private final String url = "jdbc:sqlite:lolbot.db";
-    private static final long SESSION_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
+    private static final long SESSION_TIMEOUT_MS = 20 * 60 * 1000;
 
-    public DatabaseManager() {
+    private final String url;
+    private final String user;
+    private final String password;
+
+    public DatabaseManager(String url, String user, String password) {
+        this.url = url;
+        this.user = user;
+        this.password = password;
         createTables();
     }
 
     private Connection connect() throws SQLException {
-        SQLiteConfig config = new SQLiteConfig();
-        config.setBusyTimeout(5000); // Attendre jusqu'à 5000ms si la DB est verrouillée
-        config.setJournalMode(SQLiteConfig.JournalMode.WAL); // Write-Ahead Logging pour meilleure concurrence
-        config.setSynchronous(SQLiteConfig.SynchronousMode.NORMAL);
-        return DriverManager.getConnection(url, config.toProperties());
+        return DriverManager.getConnection(url, user, password);
     }
 
     private void createTables() {
@@ -29,26 +30,26 @@ public class DatabaseManager {
                 "summoner_name TEXT NOT NULL, " +
                 "region TEXT DEFAULT 'euw1', " +
                 "last_audit TEXT" +
-                ");";
+                ")";
 
         String sqlSessions = "CREATE TABLE IF NOT EXISTS chat_sessions (" +
                 "discord_id TEXT PRIMARY KEY, " +
                 "history TEXT NOT NULL, " +
-                "last_updated INTEGER NOT NULL" +
-                ");";
+                "last_updated BIGINT NOT NULL" +
+                ")";
 
         String sqlSnapshots = "CREATE TABLE IF NOT EXISTS user_snapshots (" +
                 "discord_id TEXT PRIMARY KEY, " +
                 "tier TEXT, " +
                 "rank TEXT, " +
                 "lp INTEGER, " +
-                "timestamp INTEGER" +
-                ");";
+                "timestamp BIGINT" +
+                ")";
 
         String sqlConfig = "CREATE TABLE IF NOT EXISTS config (" +
                 "key TEXT PRIMARY KEY, " +
                 "value TEXT" +
-                ");";
+                ")";
 
         String sqlDailyPerformances = "CREATE TABLE IF NOT EXISTS daily_performances (" +
                 "discord_id TEXT, " +
@@ -60,7 +61,7 @@ public class DatabaseManager {
                 "mvp_score REAL, " +
                 "ai_summary TEXT, " +
                 "PRIMARY KEY(discord_id, date)" +
-                ");";
+                ")";
 
         try (Connection conn = this.connect();
              Statement stmt = conn.createStatement()) {
@@ -69,25 +70,12 @@ public class DatabaseManager {
             stmt.execute(sqlSnapshots);
             stmt.execute(sqlConfig);
             stmt.execute(sqlDailyPerformances);
-
-            // Migrations pour les anciennes bases de données
-            try {
-                stmt.execute("ALTER TABLE users ADD COLUMN region TEXT DEFAULT 'euw1'");
-            } catch (SQLException ignored) {
-                // La colonne existe déjà
-            }
-
-            try {
-                stmt.execute("ALTER TABLE users ADD COLUMN last_audit TEXT");
-            } catch (SQLException ignored) {
-                // La colonne existe déjà
-            }
         } catch (SQLException e) {
             System.out.println("Erreur init BDD: " + e.getMessage());
         }
     }
 
-    // --- GESTION AUDITS PERFORMANCE (Utilisé par PerformanceCommand) ---
+    // --- GESTION AUDITS PERFORMANCE ---
     public synchronized void updateLastAudit(String discordId, String audit) {
         String sql = "UPDATE users SET last_audit = ? WHERE discord_id = ?";
         try (Connection conn = this.connect();
@@ -106,9 +94,7 @@ public class DatabaseManager {
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, discordId);
             ResultSet rs = pstmt.executeQuery();
-            if (rs.next()) {
-                return rs.getString("last_audit");
-            }
+            if (rs.next()) return rs.getString("last_audit");
         } catch (SQLException e) {
             System.out.println("Erreur lecture audit: " + e.getMessage());
         }
@@ -117,7 +103,7 @@ public class DatabaseManager {
 
     // --- GESTION CONFIGURATION ---
     public synchronized void saveConfig(String key, String value) {
-        String sql = "INSERT OR REPLACE INTO config(key, value) VALUES(?, ?)";
+        String sql = "INSERT INTO config(key, value) VALUES(?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value";
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, key);
@@ -134,9 +120,7 @@ public class DatabaseManager {
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, key);
             ResultSet rs = pstmt.executeQuery();
-            if (rs.next()) {
-                return rs.getString("value");
-            }
+            if (rs.next()) return rs.getString("value");
         } catch (SQLException e) {
             System.out.println("Erreur lecture config: " + e.getMessage());
         }
@@ -145,7 +129,8 @@ public class DatabaseManager {
 
     // --- GESTION UTILISATEURS ---
     public synchronized void saveUser(String discordId, String puuid, String summonerName, String region) {
-        String sql = "INSERT OR REPLACE INTO users(discord_id, riot_puuid, summoner_name, region) VALUES(?, ?, ?, ?)";
+        String sql = "INSERT INTO users(discord_id, riot_puuid, summoner_name, region) VALUES(?, ?, ?, ?) " +
+                     "ON CONFLICT (discord_id) DO UPDATE SET riot_puuid = EXCLUDED.riot_puuid, summoner_name = EXCLUDED.summoner_name, region = EXCLUDED.region";
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, discordId);
@@ -169,12 +154,8 @@ public class DatabaseManager {
             pstmt.setString(1, discordId);
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) {
-                return new UserRecord(
-                        discordId,
-                        rs.getString("riot_puuid"),
-                        rs.getString("summoner_name"),
-                        rs.getString("region")
-                );
+                return new UserRecord(discordId, rs.getString("riot_puuid"),
+                        rs.getString("summoner_name"), rs.getString("region"));
             }
         } catch (SQLException e) {
             System.out.println("Erreur lecture user: " + e.getMessage());
@@ -194,12 +175,8 @@ public class DatabaseManager {
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
-                users.add(new UserRecord(
-                        rs.getString("discord_id"),
-                        rs.getString("riot_puuid"),
-                        rs.getString("summoner_name"),
-                        rs.getString("region")
-                ));
+                users.add(new UserRecord(rs.getString("discord_id"), rs.getString("riot_puuid"),
+                        rs.getString("summoner_name"), rs.getString("region")));
             }
         } catch (SQLException e) {
             System.out.println("Erreur lecture liste users: " + e.getMessage());
@@ -210,13 +187,10 @@ public class DatabaseManager {
     // --- GESTION SESSION CHAT ---
     public synchronized JSONArray getChatHistory(String discordId) {
         String sql = "SELECT history, last_updated FROM chat_sessions WHERE discord_id = ?";
-
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
-
             pstmt.setString(1, discordId);
             ResultSet rs = pstmt.executeQuery();
-
             if (rs.next()) {
                 long lastUpdated = rs.getLong("last_updated");
                 if (System.currentTimeMillis() - lastUpdated > SESSION_TIMEOUT_MS) {
@@ -232,7 +206,8 @@ public class DatabaseManager {
     }
 
     public synchronized void updateChatHistory(String discordId, JSONArray history) {
-        String sql = "INSERT OR REPLACE INTO chat_sessions(discord_id, history, last_updated) VALUES(?, ?, ?)";
+        String sql = "INSERT INTO chat_sessions(discord_id, history, last_updated) VALUES(?, ?, ?) " +
+                     "ON CONFLICT (discord_id) DO UPDATE SET history = EXCLUDED.history, last_updated = EXCLUDED.last_updated";
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, discordId);
@@ -262,7 +237,8 @@ public class DatabaseManager {
 
     // --- GESTION SNAPSHOTS ---
     public synchronized void saveSnapshot(String discordId, String tier, String rank, int lp) {
-        String sql = "INSERT OR REPLACE INTO user_snapshots(discord_id, tier, rank, lp, timestamp) VALUES(?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO user_snapshots(discord_id, tier, rank, lp, timestamp) VALUES(?, ?, ?, ?, ?) " +
+                     "ON CONFLICT (discord_id) DO UPDATE SET tier = EXCLUDED.tier, rank = EXCLUDED.rank, lp = EXCLUDED.lp, timestamp = EXCLUDED.timestamp";
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, discordId);
@@ -283,13 +259,8 @@ public class DatabaseManager {
             pstmt.setString(1, discordId);
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) {
-                return new SnapshotRecord(
-                        discordId,
-                        rs.getString("tier"),
-                        rs.getString("rank"),
-                        rs.getInt("lp"),
-                        rs.getLong("timestamp")
-                );
+                return new SnapshotRecord(discordId, rs.getString("tier"), rs.getString("rank"),
+                        rs.getInt("lp"), rs.getLong("timestamp"));
             }
         } catch (SQLException e) {
             System.out.println("Erreur lecture snapshot: " + e.getMessage());
@@ -299,7 +270,8 @@ public class DatabaseManager {
 
     // --- GESTION DAILY PERFORMANCES ---
     public synchronized void saveDailyPerformance(String discordId, String date, int gamesPlayed, int wins, double averageScore, int lpDiff, double mvpScore, String aiSummary) {
-        String sql = "INSERT OR REPLACE INTO daily_performances(discord_id, date, games_played, wins, average_score, lp_diff, mvp_score, ai_summary) VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO daily_performances(discord_id, date, games_played, wins, average_score, lp_diff, mvp_score, ai_summary) VALUES(?, ?, ?, ?, ?, ?, ?, ?) " +
+                     "ON CONFLICT (discord_id, date) DO UPDATE SET games_played = EXCLUDED.games_played, wins = EXCLUDED.wins, average_score = EXCLUDED.average_score, lp_diff = EXCLUDED.lp_diff, mvp_score = EXCLUDED.mvp_score, ai_summary = EXCLUDED.ai_summary";
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, discordId);
@@ -319,30 +291,23 @@ public class DatabaseManager {
     public List<String> getBestPlayersOfPeriod(String fromDateString) {
         List<String> bestDiscordIds = new ArrayList<>();
         String sql = "SELECT discord_id, AVG(mvp_score) as final_score FROM daily_performances WHERE date >= ? AND games_played > 0 GROUP BY discord_id ORDER BY final_score DESC";
-
         try (Connection conn = this.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            
             pstmt.setString(1, fromDateString);
             ResultSet rs = pstmt.executeQuery();
-
             double bestScore = -1.0;
             boolean first = true;
-
             while (rs.next()) {
                 double score = rs.getDouble("final_score");
                 String discordId = rs.getString("discord_id");
-
                 if (first) {
                     bestScore = score;
                     bestDiscordIds.add(discordId);
                     first = false;
+                } else if (Double.compare(score, bestScore) == 0) {
+                    bestDiscordIds.add(discordId);
                 } else {
-                    if (Double.compare(score, bestScore) == 0) {
-                        bestDiscordIds.add(discordId);
-                    } else {
-                        break;
-                    }
+                    break;
                 }
             }
         } catch (SQLException e) {
@@ -385,7 +350,6 @@ public class DatabaseManager {
             this.region = (region == null || region.isEmpty()) ? "euw1" : region;
         }
 
-        // Constructeur de compatibilité
         public UserRecord(String discordId, String puuid, String summonerName) {
             this(discordId, puuid, summonerName, "euw1");
         }

@@ -24,7 +24,7 @@ public class TavilyService {
     private static final ThreadLocal<StringBuilder> traceLog = ThreadLocal.withInitial(StringBuilder::new);
 
     public TavilyService() {
-        Dotenv dotenv = Dotenv.load();
+        Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
         this.apiKey = dotenv.get("TAVILY_API_KEY");
         
         this.client = new OkHttpClient.Builder()

@@ -115,7 +115,7 @@ public class MistralService {
     private static final ThreadLocal<StringBuilder> agentTraceLog = ThreadLocal.withInitial(StringBuilder::new);
 
     public MistralService(RiotService riotService, TavilyService tavilyService) {
-        Dotenv dotenv = Dotenv.load();
+        Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
         this.apiKey = dotenv.get("MISTRAL_API_KEY");
 
         if (apiKey == null || apiKey.isEmpty()) {

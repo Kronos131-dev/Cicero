@@ -1,7 +1,23 @@
+# Build
+**/target/
+dependency-reduced-pom.xml
+
+# Secrets
+**/.env
 .env
-target/
+
+# Database
+*.db
+
+# IDE
 .idea/
+**/.idea/
 *.iml
-out/
-*.log
-.DS_Store
+*.iws
+
+# Logs / traces
+*.txt
+
+# Compiled
+*.jar
+*.class

@@ -16,11 +16,15 @@ import java.util.concurrent.Executors;
 public class LolBot extends ListenerAdapter {
 
     public static void main(String[] args) throws Exception {
-        Dotenv dotenv = Dotenv.load();
+        Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
 
         // Initialisation des services
         ExecutorService executor = Executors.newFixedThreadPool(10);
-        DatabaseManager db = new DatabaseManager();
+        DatabaseManager db = new DatabaseManager(
+                dotenv.get("DB_URL"),
+                dotenv.get("DB_USER"),
+                dotenv.get("DB_PASSWORD")
+        );
         RiotService riotService = new RiotService(dotenv.get("RIOT_API_KEY"));
         TavilyService tavilyService = new TavilyService();
         MistralService mistralService = new MistralService(riotService, tavilyService);
@@ -72,13 +76,13 @@ public class LolBot extends ListenerAdapter {
 
     private static void injectDefaultUsers(DatabaseManager db, RiotService riotService) {
         String[][] defaultUsers = {
-            {"384388224912719874", "Yvaint", "FDC"},
-            {"1182366478691991653", "RUSHCIEL", "CIEL"},
+            {"384388224912719874", "Yvain", "FDC"},
+            {"1182366478691991653", "Noe" , "叶秋枫"},
             {"203249597169008640", "FDC Adrisir", "0059"},
             {"321614400677216257", "Hakuryuu974", "EUW"},
             {"311532666044416000", "THE PGM OF KFC", "EUW"},
             {"374495079676641291", "ADAM", "NIKEL"},
-            {"353936065436057630", "3arbi macabre", "DOOM"},
+            {"353936065436057630", "jvous tue tous" , "blood"},
             {"386606978031550465", "SCN1erT", "EUW"}
         };
 
